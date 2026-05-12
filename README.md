@@ -184,7 +184,8 @@ $items   = $dp->orders()->fetchItems('ord_xxxx');
 use QDH\DurianPay\Enums\{PaymentType, PaymentStatus, WalletType, BankCode,
                           RetailStore, BnplType, OnlineBankingType};
 
-// Charge
+// ── Charge ───────────────────────────────────────────────────
+
 $payment = $dp->payments()->charge(PaymentType::EWallet, [
     'order_id'    => 'ord_xxxx',
     'amount'      => '50000.00',
@@ -216,18 +217,39 @@ $payment = $dp->payments()->charge(PaymentType::BuyNowPayLater, [
     'bnpl_type' => BnplType::Kredivo->value,
 ]);
 
-// Check status — returns a typed PaymentStatus enum
+// ── Check status ───────────────────────────────────────────
+
+// checkStatus() — raw response from GET /payments/{id}/status
+$response = $dp->payments()->checkStatus('pay_xxxx');
+// returns:
+// [
+//   'data' => [
+//     'status' => 'COMPLETED',   // current payment state
+//     'id'     => 'pay_xxxx',
+//   ]
+// ]
+
+// status() — convenience wrapper, returns a typed PaymentStatus enum
 $status = $dp->payments()->status('pay_xxxx');
+// returns one of:
+//   PaymentStatus::Started    (payment initiated)
+//   PaymentStatus::Processing (being processed by provider)
+//   PaymentStatus::Completed  (successful)
+//   PaymentStatus::Failed     (payment failed)
+//   PaymentStatus::Cancelled  (cancelled by user or merchant)
+//   PaymentStatus::Expired    (payment window closed)
+//   PaymentStatus::Pending    (awaiting user action)
 
 if ($status === PaymentStatus::Completed) {
-    // payment successful
+    // fulfil the order
 }
 
-if ($status === PaymentStatus::Failed || $status === PaymentStatus::Expired) {
-    // handle failure
+if (in_array($status, [PaymentStatus::Failed, PaymentStatus::Expired, PaymentStatus::Cancelled])) {
+    // notify the user and allow retry
 }
 
-// Full payment details
+// ── Other payment methods ─────────────────────────────────
+
 $payment  = $dp->payments()->fetch('pay_xxxx');
 $payments = $dp->payments()->list(skip: 0, limit: 25);
 
@@ -248,12 +270,30 @@ $qris = $dp->qris()->charge(
     name:    'John Doe',
     amount:  50000,
 );
+// $qris['data']['qr_code_string'] — QR payload to render
+// $qris['data']['qr_code_image']  — base64-encoded QR image
+// $qris['data']['id']             — payment ID for status polling
 
-// $qris['data']['qr_code_string'] — QR payload to display
-// $qris['data']['qr_code_image']  — base64 QR image
+// checkStatus() — raw response from GET /payments/{id}/status
+$response = $dp->qris()->checkStatus('pay_xxxx');
+// returns:
+// [
+//   'data' => [
+//     'status' => 'PROCESSING',  // current payment state
+//     'id'     => 'pay_xxxx',
+//   ]
+// ]
 
-// Check status — returns a typed PaymentStatus enum
+// status() — convenience wrapper, returns a typed PaymentStatus enum
 $status = $dp->qris()->status('pay_xxxx');
+// returns one of:
+//   PaymentStatus::Started    (QR generated, not yet scanned)
+//   PaymentStatus::Processing (scanned, awaiting bank confirmation)
+//   PaymentStatus::Completed  (payment confirmed)
+//   PaymentStatus::Failed     (payment failed)
+//   PaymentStatus::Cancelled  (cancelled)
+//   PaymentStatus::Expired    (QR code expired)
+//   PaymentStatus::Pending    (awaiting user action)
 
 if ($status === PaymentStatus::Completed) {
     // QRIS payment confirmed
@@ -277,7 +317,7 @@ try {
     echo $e->statusCode;       // e.g. 404
     print_r($e->responseBody);
 } catch (DurianPayException $e) {
-    // network error or unknown status value
+    // network error or unrecognised status value
     echo $e->getMessage();
 }
 ```
