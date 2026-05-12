@@ -14,17 +14,52 @@ Minimal PHP 8.1+ SDK for the [DurianPay](https://durianpay.id) payment gateway.
 composer require qdh/durianpay
 ```
 
-## Usage
+---
 
-### Bootstrap
+## Configuration
+
+### Option 1 — Environment variable (recommended)
+
+Add your API key to your `.env` file:
+
+```env
+DURIANPAY_API_KEY=your-api-key-here
+```
+
+Then instantiate via `fromEnv()`. It reads `DURIANPAY_API_KEY` by default and
+throws a `DurianPayException` if the variable is missing or empty.
 
 ```php
 use QDH\DurianPay\DurianPay;
 
-$dp = new DurianPay('your-api-key');
+$dp = DurianPay::fromEnv();
+
+// Custom variable name
+$dp = DurianPay::fromEnv('MY_DURIANPAY_KEY');
+```
+
+If you are using plain PHP (no framework), load the `.env` file first with
+[vlucas/phpdotenv](https://github.com/vlucas/phpdotenv):
+
+```php
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+$dotenv->load();
+
+$dp = DurianPay::fromEnv();
+```
+
+Frameworks such as Laravel and Symfony load `.env` automatically, so
+`fromEnv()` works out of the box.
+
+### Option 2 — Pass the key directly
+
+```php
+$dp = new DurianPay('your-api-key-here');
 ```
 
 ---
+
+## Usage
 
 ### Payment Types
 
@@ -168,7 +203,7 @@ try {
     echo $e->statusCode;       // e.g. 422
     print_r($e->responseBody); // decoded JSON response
 } catch (DurianPayException $e) {
-    // Network / cURL error
+    // Network / cURL error, or missing env variable
     echo $e->getMessage();
 }
 ```

@@ -7,6 +7,7 @@ namespace QDH\DurianPay;
 use QDH\DurianPay\Api\Orders;
 use QDH\DurianPay\Api\Payments;
 use QDH\DurianPay\Api\Qris;
+use QDH\DurianPay\Exceptions\DurianPayException;
 use QDH\DurianPay\Http\HttpClient;
 
 class DurianPay
@@ -21,6 +22,27 @@ class DurianPay
     public function __construct(public readonly string $apiKey)
     {
         $this->http = new HttpClient($this->apiKey, self::BASE_URL);
+    }
+
+    /**
+     * Instantiate from an environment variable.
+     * Defaults to DURIANPAY_API_KEY.
+     */
+    public static function fromEnv(string $envKey = 'DURIANPAY_API_KEY'): static
+    {
+        $apiKey = getenv($envKey);
+
+        if ($apiKey === false || $apiKey === '') {
+            $apiKey = $_ENV[$envKey] ?? '';
+        }
+
+        if ($apiKey === '') {
+            throw new DurianPayException(
+                "DurianPay API key not found. Set the \"{$envKey}\" environment variable."
+            );
+        }
+
+        return new static($apiKey);
     }
 
     public function orders(): Orders
