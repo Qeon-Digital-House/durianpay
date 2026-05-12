@@ -48,13 +48,12 @@ $dp = DurianPay::fromEnv(envKey: 'MY_DURIANPAY_KEY', envPath: __DIR__);
 
 ---
 
-## Usage
+## Enums
 
-### Payment Types
+All channels and sub-types are backed string enums. Use `->value` when building
+request arrays.
 
-All payment type channels are defined in the `PaymentType` enum. Passing an
-undefined type is a compile-time error — PHP will reject it before the request
-is ever made.
+### Payment type
 
 ```php
 use QDH\DurianPay\Enums\PaymentType;
@@ -67,15 +66,91 @@ PaymentType::BuyNowPayLater; // 'BNPL'
 PaymentType::Qris;           // 'QRIS'
 ```
 
+### E-wallet (`WalletType`)
+
+```php
+use QDH\DurianPay\Enums\WalletType;
+
+WalletType::Dana;      // 'DANA'
+WalletType::Ovo;       // 'OVO'
+WalletType::LinkAja;   // 'LINKAJA'
+WalletType::GoPay;     // 'GOPAY'
+WalletType::ShopeePay; // 'SHOPEEPAY'
+WalletType::JeniusPay; // 'JENIUSPAY'
+WalletType::AstraPay;  // 'ASTRAPAY'
+```
+
+### Virtual Account bank (`BankCode`)
+
+```php
+use QDH\DurianPay\Enums\BankCode;
+
+BankCode::Bca;     // 'BCA'
+BankCode::Bni;     // 'BNI'
+BankCode::Bri;     // 'BRI'
+BankCode::Mandiri; // 'MANDIRI'
+BankCode::Permata; // 'PERMATA'
+BankCode::Bsi;     // 'BSI'
+BankCode::Cimb;    // 'CIMB'
+BankCode::Danamon; // 'DANAMON'
+BankCode::Btn;     // 'BTN'
+BankCode::Maybank; // 'MAYBANK'
+```
+
+### Retail store (`RetailStore`)
+
+```php
+use QDH\DurianPay\Enums\RetailStore;
+
+RetailStore::Alfamart;  // 'ALFAMART'
+RetailStore::Indomaret; // 'INDOMARET'
+```
+
+### Buy Now Pay Later (`BnplType`)
+
+```php
+use QDH\DurianPay\Enums\BnplType;
+
+BnplType::Kredivo;   // 'KREDIVO'
+BnplType::Akulaku;   // 'AKULAKU'
+BnplType::Indodana;  // 'INDODANA'
+BnplType::SpayLater; // 'SPAYLATER'
+```
+
+### Online banking (`OnlineBankingType`)
+
+```php
+use QDH\DurianPay\Enums\OnlineBankingType;
+
+OnlineBankingType::BriEpay;         // 'BRI_EPAY'
+OnlineBankingType::CimbClicks;      // 'CIMB_CLICKS'
+OnlineBankingType::DanamonOnline;   // 'DANAMON_ONLINE'
+OnlineBankingType::MandiriClickpay; // 'MANDIRI_CLICKPAY'
+OnlineBankingType::PermataNet;      // 'PERMATA_NET'
+```
+
+### Currency
+
+DurianPay operates exclusively in Indonesia. **IDR is the only supported currency.**
+
+```php
+use QDH\DurianPay\Enums\Currency;
+
+Currency::Idr; // 'IDR'
+```
+
 ---
+
+## Usage
 
 ### Orders
 
 ```php
-// Create an order (required before charging)
+use QDH\DurianPay\Enums\Currency;
+
 $order = $dp->orders()->create([
     'amount'       => '50000.00',
-    'currency'     => 'IDR',
+    'currency'     => Currency::Idr->value,
     'order_ref_id' => 'order-001',
     'customer'     => [
         'customer_ref_id' => 'cust-001',
@@ -87,31 +162,23 @@ $order = $dp->orders()->create([
 
 $orderId = $order['data']['id']; // e.g. "ord_xxxx"
 
-// Fetch a single order
-$order = $dp->orders()->fetch('ord_xxxx');
-
-// List orders (paginated)
-$orders = $dp->orders()->list(skip: 0, limit: 25);
-
-// Fetch order line items
-$items = $dp->orders()->fetchItems('ord_xxxx');
+$order   = $dp->orders()->fetch('ord_xxxx');
+$orders  = $dp->orders()->list(skip: 0, limit: 25);
+$items   = $dp->orders()->fetchItems('ord_xxxx');
 ```
 
 ---
 
 ### Payments
 
-The first argument to `charge()` must be a `PaymentType` enum case.
-Any undefined type channel is rejected by PHP at the call site.
-
 ```php
-use QDH\DurianPay\Enums\PaymentType;
+use QDH\DurianPay\Enums\{PaymentType, WalletType, BankCode, RetailStore, BnplType, OnlineBankingType};
 
-// E-wallet (DANA)
+// E-wallet
 $payment = $dp->payments()->charge(PaymentType::EWallet, [
     'order_id'    => 'ord_xxxx',
     'amount'      => '50000.00',
-    'wallet_type' => 'DANA',
+    'wallet_type' => WalletType::Dana->value,
     'mobile'      => '+6281234567890',
 ]);
 
@@ -119,42 +186,38 @@ $payment = $dp->payments()->charge(PaymentType::EWallet, [
 $payment = $dp->payments()->charge(PaymentType::VirtualAccount, [
     'order_id'  => 'ord_xxxx',
     'amount'    => '50000.00',
-    'bank_code' => 'BCA',
+    'bank_code' => BankCode::Bca->value,
 ]);
 
-// Retail store (Alfamart / Indomaret)
+// Retail store
 $payment = $dp->payments()->charge(PaymentType::RetailStore, [
     'order_id'   => 'ord_xxxx',
     'amount'     => '50000.00',
-    'store_type' => 'ALFAMART',
+    'store_type' => RetailStore::Alfamart->value,
 ]);
 
 // Online banking
 $payment = $dp->payments()->charge(PaymentType::OnlineBanking, [
     'order_id' => 'ord_xxxx',
     'amount'   => '50000.00',
-    'type'     => 'BRI_EPAY',
+    'type'     => OnlineBankingType::BriEpay->value,
 ]);
 
 // Buy Now Pay Later
 $payment = $dp->payments()->charge(PaymentType::BuyNowPayLater, [
     'order_id'  => 'ord_xxxx',
     'amount'    => '50000.00',
-    'bnpl_type' => 'KREDIVO',
+    'bnpl_type' => BnplType::Kredivo->value,
 ]);
 
-// Fetch payment status
-$payment = $dp->payments()->fetch('pay_xxxx');
-
-// List payments (paginated)
+// Fetch / list / verify / capture
+$payment  = $dp->payments()->fetch('pay_xxxx');
 $payments = $dp->payments()->list(skip: 0, limit: 25);
 
-// Verify a payment signature (after receiving a webhook)
-$result = $dp->payments()->verify('pay_xxxx', [
+$dp->payments()->verify('pay_xxxx', [
     'verification_signature' => 'signature-from-webhook',
 ]);
 
-// Capture a previously authorised payment
 $dp->payments()->capture('pay_xxxx');
 ```
 
@@ -163,7 +226,6 @@ $dp->payments()->capture('pay_xxxx');
 ### QRIS
 
 ```php
-// Create a QRIS charge
 $qris = $dp->qris()->charge(
     orderId: 'ord_xxxx',
     name:    'John Doe',
@@ -173,7 +235,6 @@ $qris = $dp->qris()->charge(
 // $qris['data']['qr_code_string'] — QR payload to display
 // $qris['data']['qr_code_image']  — base64 QR image
 
-// Poll for payment status
 $status = $dp->qris()->fetch('pay_xxxx');
 ```
 
@@ -188,12 +249,10 @@ use QDH\DurianPay\Exceptions\DurianPayException;
 try {
     $payment = $dp->payments()->charge(PaymentType::EWallet, [...]);
 } catch (ApiException $e) {
-    // HTTP 4xx / 5xx from DurianPay
     echo $e->statusCode;       // e.g. 422
     print_r($e->responseBody); // decoded JSON response
 } catch (DurianPayException $e) {
-    // Network / cURL error, or missing env variable
-    echo $e->getMessage();
+    echo $e->getMessage();     // network / cURL / missing env var
 }
 ```
 
