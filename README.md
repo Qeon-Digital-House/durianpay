@@ -36,8 +36,6 @@ DURIANPAY_PRODUCTION=false
 use QDH\DurianPay\DurianPay;
 
 $dp = DurianPay::fromEnv();
-
-echo $dp->environment->value; // 'sandbox' or 'live'
 ```
 
 **Plain PHP** — pass the directory that contains your `.env` file:
@@ -46,7 +44,7 @@ echo $dp->environment->value; // 'sandbox' or 'live'
 $dp = DurianPay::fromEnv(envPath: __DIR__);
 ```
 
-**Direct instantiation** — pass the key and environment explicitly:
+**Direct instantiation:**
 
 ```php
 use QDH\DurianPay\Enums\Environment;
@@ -62,8 +60,6 @@ $dp = new DurianPay('dp_live_xxxxx', Environment::Live);
 ### Environment
 
 ```php
-use QDH\DurianPay\Enums\Environment;
-
 Environment::Sandbox; // 'sandbox'
 Environment::Live;    // 'live'
 ```
@@ -71,14 +67,24 @@ Environment::Live;    // 'live'
 ### Payment type
 
 ```php
-use QDH\DurianPay\Enums\PaymentType;
-
 PaymentType::EWallet;        // 'EWALLET'
 PaymentType::VirtualAccount; // 'VA'
 PaymentType::RetailStore;    // 'RETAILSTORE'
 PaymentType::OnlineBanking;  // 'ONLINE_BANKING'
 PaymentType::BuyNowPayLater; // 'BNPL'
 PaymentType::Qris;           // 'QRIS'
+```
+
+### Payment status
+
+```php
+PaymentStatus::Started;    // 'STARTED'
+PaymentStatus::Processing; // 'PROCESSING'
+PaymentStatus::Completed;  // 'COMPLETED'
+PaymentStatus::Failed;     // 'FAILED'
+PaymentStatus::Cancelled;  // 'CANCELLED'
+PaymentStatus::Expired;    // 'EXPIRED'
+PaymentStatus::Pending;    // 'PENDING'
 ```
 
 ### E-wallet (`WalletType`)
@@ -163,7 +169,7 @@ $order = $dp->orders()->create([
     ],
 ]);
 
-$orderId = $order['data']['id']; // e.g. "ord_xxxx"
+$orderId = $order['data']['id'];
 
 $order   = $dp->orders()->fetch('ord_xxxx');
 $orders  = $dp->orders()->list(skip: 0, limit: 25);
@@ -175,9 +181,10 @@ $items   = $dp->orders()->fetchItems('ord_xxxx');
 ### Payments
 
 ```php
-use QDH\DurianPay\Enums\{PaymentType, WalletType, BankCode, RetailStore, BnplType, OnlineBankingType};
+use QDH\DurianPay\Enums\{PaymentType, PaymentStatus, WalletType, BankCode,
+                          RetailStore, BnplType, OnlineBankingType};
 
-// E-wallet
+// Charge
 $payment = $dp->payments()->charge(PaymentType::EWallet, [
     'order_id'    => 'ord_xxxx',
     'amount'      => '50000.00',
@@ -185,41 +192,46 @@ $payment = $dp->payments()->charge(PaymentType::EWallet, [
     'mobile'      => '+6281234567890',
 ]);
 
-// Virtual Account
 $payment = $dp->payments()->charge(PaymentType::VirtualAccount, [
     'order_id'  => 'ord_xxxx',
     'amount'    => '50000.00',
     'bank_code' => BankCode::Bca->value,
 ]);
 
-// Retail store
 $payment = $dp->payments()->charge(PaymentType::RetailStore, [
     'order_id'   => 'ord_xxxx',
     'amount'     => '50000.00',
     'store_type' => RetailStore::Alfamart->value,
 ]);
 
-// Online banking
 $payment = $dp->payments()->charge(PaymentType::OnlineBanking, [
     'order_id' => 'ord_xxxx',
     'amount'   => '50000.00',
     'type'     => OnlineBankingType::BriEpay->value,
 ]);
 
-// Buy Now Pay Later
 $payment = $dp->payments()->charge(PaymentType::BuyNowPayLater, [
     'order_id'  => 'ord_xxxx',
     'amount'    => '50000.00',
     'bnpl_type' => BnplType::Kredivo->value,
 ]);
 
+// Check status — returns a typed PaymentStatus enum
+$status = $dp->payments()->status('pay_xxxx');
+
+if ($status === PaymentStatus::Completed) {
+    // payment successful
+}
+
+if ($status === PaymentStatus::Failed || $status === PaymentStatus::Expired) {
+    // handle failure
+}
+
+// Full payment details
 $payment  = $dp->payments()->fetch('pay_xxxx');
 $payments = $dp->payments()->list(skip: 0, limit: 25);
 
-$dp->payments()->verify('pay_xxxx', [
-    'verification_signature' => 'signature-from-webhook',
-]);
-
+$dp->payments()->verify('pay_xxxx', ['verification_signature' => 'sig']);
 $dp->payments()->capture('pay_xxxx');
 ```
 
@@ -228,6 +240,9 @@ $dp->payments()->capture('pay_xxxx');
 ### QRIS
 
 ```php
+use QDH\DurianPay\Enums\PaymentStatus;
+
+// Create a QRIS charge
 $qris = $dp->qris()->charge(
     orderId: 'ord_xxxx',
     name:    'John Doe',
@@ -237,7 +252,15 @@ $qris = $dp->qris()->charge(
 // $qris['data']['qr_code_string'] — QR payload to display
 // $qris['data']['qr_code_image']  — base64 QR image
 
-$status = $dp->qris()->fetch('pay_xxxx');
+// Check status — returns a typed PaymentStatus enum
+$status = $dp->qris()->status('pay_xxxx');
+
+if ($status === PaymentStatus::Completed) {
+    // QRIS payment confirmed
+}
+
+// Full payment details
+$detail = $dp->qris()->fetch('pay_xxxx');
 ```
 
 ---
@@ -249,12 +272,13 @@ use QDH\DurianPay\Exceptions\ApiException;
 use QDH\DurianPay\Exceptions\DurianPayException;
 
 try {
-    $payment = $dp->payments()->charge(PaymentType::EWallet, [...]);
+    $status = $dp->payments()->status('pay_xxxx');
 } catch (ApiException $e) {
-    echo $e->statusCode;       // e.g. 422
-    print_r($e->responseBody); // decoded JSON response
+    echo $e->statusCode;       // e.g. 404
+    print_r($e->responseBody);
 } catch (DurianPayException $e) {
-    echo $e->getMessage();     // network / cURL / missing env var
+    // network error or unknown status value
+    echo $e->getMessage();
 }
 ```
 
