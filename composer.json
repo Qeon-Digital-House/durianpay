@@ -1,0 +1,17 @@
+{
+    "name": "qdh/durianpay",
+    "description": "DurianPay Payment Gateway SDK for PHP 8.1+",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.1",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "QDH\\DurianPay\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}
