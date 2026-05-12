@@ -65,12 +65,24 @@ class QrisTest extends TestCase
         $this->assertSame($response, $this->qris->fetch('pay_123'));
     }
 
+    public function test_check_status_calls_dedicated_endpoint(): void
+    {
+        $response = ['data' => ['status' => 'COMPLETED']];
+
+        $this->http->expects($this->once())
+            ->method('get')
+            ->with('payments/pay_123/status', [])
+            ->willReturn($response);
+
+        $this->assertSame($response, $this->qris->checkStatus('pay_123'));
+    }
+
     /** @dataProvider statusProvider */
     public function test_status_returns_typed_enum(string $raw, PaymentStatus $expected): void
     {
         $this->http->expects($this->once())
             ->method('get')
-            ->with('payments/pay_123', [])
+            ->with('payments/pay_123/status', [])
             ->willReturn(['data' => ['status' => $raw]]);
 
         $this->assertSame($expected, $this->qris->status('pay_123'));
@@ -87,6 +99,15 @@ class QrisTest extends TestCase
             [PaymentStatus::Expired->value,    PaymentStatus::Expired],
             [PaymentStatus::Pending->value,    PaymentStatus::Pending],
         ];
+    }
+
+    public function test_status_also_handles_top_level_status_key(): void
+    {
+        $this->http->expects($this->once())
+            ->method('get')
+            ->willReturn(['status' => 'PROCESSING']);
+
+        $this->assertSame(PaymentStatus::Processing, $this->qris->status('pay_123'));
     }
 
     public function test_status_throws_on_unknown_status(): void

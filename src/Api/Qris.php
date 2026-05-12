@@ -26,10 +26,17 @@ class Qris extends AbstractApi
         return $this->get("payments/{$id}");
     }
 
+    /** GET /payments/{id}/status — returns the raw API response. */
+    public function checkStatus(string $id): array
+    {
+        return $this->get("payments/{$id}/status");
+    }
+
+    /** Returns a typed PaymentStatus enum for the given payment ID. */
     public function status(string $id): PaymentStatus
     {
-        $response = $this->fetch($id);
-        $raw      = $response['data']['status'] ?? '';
+        $response = $this->checkStatus($id);
+        $raw      = $response['data']['status'] ?? $response['status'] ?? '';
         $status   = PaymentStatus::tryFrom($raw);
 
         if ($status === null) {

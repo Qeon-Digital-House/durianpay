@@ -22,6 +22,8 @@ class PaymentsTest extends TestCase
         $this->payments = new Payments($this->http);
     }
 
+    // ── charge ───────────────────────────────────────────────────────────
+
     /** @dataProvider paymentTypeProvider */
     public function test_charge_sends_correct_type_value(PaymentType $type, string $expected): void
     {
@@ -60,6 +62,8 @@ class PaymentsTest extends TestCase
         $this->assertSame($response, $this->payments->charge(PaymentType::EWallet, $request));
     }
 
+    // ── fetch / list ─────────────────────────────────────────────────────
+
     public function test_fetch_gets_single_payment(): void
     {
         $response = ['data' => ['id' => 'pay_123']];
@@ -92,12 +96,26 @@ class PaymentsTest extends TestCase
         $this->payments->list(skip: 5, limit: 10);
     }
 
+    // ── checkStatus / status ─────────────────────────────────────────────
+
+    public function test_check_status_calls_dedicated_endpoint(): void
+    {
+        $response = ['data' => ['status' => 'COMPLETED']];
+
+        $this->http->expects($this->once())
+            ->method('get')
+            ->with('payments/pay_123/status', [])
+            ->willReturn($response);
+
+        $this->assertSame($response, $this->payments->checkStatus('pay_123'));
+    }
+
     /** @dataProvider statusProvider */
     public function test_status_returns_typed_enum(string $raw, PaymentStatus $expected): void
     {
         $this->http->expects($this->once())
             ->method('get')
-            ->with('payments/pay_123', [])
+            ->with('payments/pay_123/status', [])
             ->willReturn(['data' => ['status' => $raw]]);
 
         $this->assertSame($expected, $this->payments->status('pay_123'));
@@ -116,6 +134,15 @@ class PaymentsTest extends TestCase
         ];
     }
 
+    public function test_status_also_handles_top_level_status_key(): void
+    {
+        $this->http->expects($this->once())
+            ->method('get')
+            ->willReturn(['status' => 'COMPLETED']);
+
+        $this->assertSame(PaymentStatus::Completed, $this->payments->status('pay_123'));
+    }
+
     public function test_status_throws_on_unknown_status(): void
     {
         $this->http->expects($this->once())
@@ -127,6 +154,8 @@ class PaymentsTest extends TestCase
 
         $this->payments->status('pay_123');
     }
+
+    // ── verify / capture ───────────────────────────────────────────────
 
     public function test_verify_posts_to_verify_endpoint(): void
     {
