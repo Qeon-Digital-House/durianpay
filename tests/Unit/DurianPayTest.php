@@ -14,15 +14,14 @@ use QDH\DurianPay\Exceptions\DurianPayException;
 
 class DurianPayTest extends TestCase
 {
-    private const API_KEY_VAR = 'DURIANPAY_API_KEY';
-    private const ENV_VAR     = 'DURIANPAY_ENV';
+    private const API_KEY_VAR    = 'DURIANPAY_API_KEY';
+    private const PRODUCTION_VAR = 'DURIANPAY_PRODUCTION';
 
-    /** Saved env state restored in tearDown. */
     private array $savedEnv = [];
 
     protected function setUp(): void
     {
-        foreach ([self::API_KEY_VAR, self::ENV_VAR] as $key) {
+        foreach ([self::API_KEY_VAR, self::PRODUCTION_VAR] as $key) {
             $this->savedEnv[$key] = getenv($key);
         }
     }
@@ -40,69 +39,6 @@ class DurianPayTest extends TestCase
         }
     }
 
-    // ── constructor ────────────────────────────────────────────────────────
-
-    public function test_constructor_stores_api_key(): void
-    {
-        $dp = new DurianPay('my-key');
-
-        $this->assertSame('my-key', $dp->apiKey);
-    }
-
-    public function test_constructor_defaults_to_live_environment(): void
-    {
-        $dp = new DurianPay('my-key');
-
-        $this->assertSame(Environment::Live, $dp->environment);
-    }
-
-    public function test_constructor_accepts_sandbox_environment(): void
-    {
-        $dp = new DurianPay('my-key', Environment::Sandbox);
-
-        $this->assertSame(Environment::Sandbox, $dp->environment);
-    }
-
-    // ── lazy API instances ─────────────────────────────────────────────────
-
-    public function test_orders_returns_orders_instance(): void
-    {
-        $this->assertInstanceOf(Orders::class, (new DurianPay('k'))->orders());
-    }
-
-    public function test_orders_is_lazily_cached(): void
-    {
-        $dp = new DurianPay('k');
-
-        $this->assertSame($dp->orders(), $dp->orders());
-    }
-
-    public function test_payments_returns_payments_instance(): void
-    {
-        $this->assertInstanceOf(Payments::class, (new DurianPay('k'))->payments());
-    }
-
-    public function test_payments_is_lazily_cached(): void
-    {
-        $dp = new DurianPay('k');
-
-        $this->assertSame($dp->payments(), $dp->payments());
-    }
-
-    public function test_qris_returns_qris_instance(): void
-    {
-        $this->assertInstanceOf(Qris::class, (new DurianPay('k'))->qris());
-    }
-
-    public function test_qris_is_lazily_cached(): void
-    {
-        $dp = new DurianPay('k');
-
-        $this->assertSame($dp->qris(), $dp->qris());
-    }
-
-    // ── fromEnv ────────────────────────────────────────────────────────────
-
     private function setEnv(string $key, string $value): void
     {
         putenv("{$key}={$value}");
@@ -115,54 +51,114 @@ class DurianPayTest extends TestCase
         unset($_ENV[$key], $_SERVER[$key]);
     }
 
-    public function test_from_env_reads_api_key(): void
+    // ── constructor ──────────────────────────────────────────────────────
+
+    public function test_constructor_stores_api_key(): void
     {
-        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
-        $this->setEnv(self::ENV_VAR, 'live');
-
-        $dp = DurianPay::fromEnv();
-
-        $this->assertSame('env-api-key', $dp->apiKey);
+        $this->assertSame('my-key', (new DurianPay('my-key'))->apiKey);
     }
 
-    public function test_from_env_reads_sandbox_environment(): void
+    public function test_constructor_defaults_to_sandbox(): void
     {
-        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
-        $this->setEnv(self::ENV_VAR, 'sandbox');
+        $this->assertSame(Environment::Sandbox, (new DurianPay('k'))->environment);
+    }
 
-        $dp = DurianPay::fromEnv();
+    public function test_constructor_accepts_live_environment(): void
+    {
+        $dp = new DurianPay('k', Environment::Live);
+
+        $this->assertSame(Environment::Live, $dp->environment);
+    }
+
+    public function test_constructor_accepts_sandbox_environment(): void
+    {
+        $dp = new DurianPay('k', Environment::Sandbox);
 
         $this->assertSame(Environment::Sandbox, $dp->environment);
     }
 
-    public function test_from_env_reads_live_environment(): void
+    // ── lazy API instances ──────────────────────────────────────────────
+
+    public function test_orders_returns_orders_instance(): void
     {
-        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
-        $this->setEnv(self::ENV_VAR, 'live');
-
-        $dp = DurianPay::fromEnv();
-
-        $this->assertSame(Environment::Live, $dp->environment);
+        $this->assertInstanceOf(Orders::class, (new DurianPay('k'))->orders());
     }
 
-    public function test_from_env_defaults_to_live_when_env_var_missing(): void
+    public function test_orders_is_lazily_cached(): void
     {
-        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
-        $this->unsetEnv(self::ENV_VAR);
-
-        $dp = DurianPay::fromEnv();
-
-        $this->assertSame(Environment::Live, $dp->environment);
+        $dp = new DurianPay('k');
+        $this->assertSame($dp->orders(), $dp->orders());
     }
 
-    public function test_from_env_defaults_to_live_on_invalid_env_value(): void
+    public function test_payments_returns_payments_instance(): void
+    {
+        $this->assertInstanceOf(Payments::class, (new DurianPay('k'))->payments());
+    }
+
+    public function test_payments_is_lazily_cached(): void
+    {
+        $dp = new DurianPay('k');
+        $this->assertSame($dp->payments(), $dp->payments());
+    }
+
+    public function test_qris_returns_qris_instance(): void
+    {
+        $this->assertInstanceOf(Qris::class, (new DurianPay('k'))->qris());
+    }
+
+    public function test_qris_is_lazily_cached(): void
+    {
+        $dp = new DurianPay('k');
+        $this->assertSame($dp->qris(), $dp->qris());
+    }
+
+    // ── fromEnv ──────────────────────────────────────────────────────────
+
+    public function test_from_env_reads_api_key(): void
     {
         $this->setEnv(self::API_KEY_VAR, 'env-api-key');
-        $this->setEnv(self::ENV_VAR, 'production');
 
-        $dp = DurianPay::fromEnv();
+        $this->assertSame('env-api-key', DurianPay::fromEnv()->apiKey);
+    }
 
-        $this->assertSame(Environment::Live, $dp->environment);
+    public function test_from_env_production_true_gives_live(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'key');
+        $this->setEnv(self::PRODUCTION_VAR, 'true');
+
+        $this->assertSame(Environment::Live, DurianPay::fromEnv()->environment);
+    }
+
+    public function test_from_env_production_false_gives_sandbox(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'key');
+        $this->setEnv(self::PRODUCTION_VAR, 'false');
+
+        $this->assertSame(Environment::Sandbox, DurianPay::fromEnv()->environment);
+    }
+
+    public function test_from_env_production_missing_defaults_to_sandbox(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'key');
+        $this->unsetEnv(self::PRODUCTION_VAR);
+
+        $this->assertSame(Environment::Sandbox, DurianPay::fromEnv()->environment);
+    }
+
+    public function test_from_env_production_one_gives_live(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'key');
+        $this->setEnv(self::PRODUCTION_VAR, '1');
+
+        $this->assertSame(Environment::Live, DurianPay::fromEnv()->environment);
+    }
+
+    public function test_from_env_production_zero_gives_sandbox(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'key');
+        $this->setEnv(self::PRODUCTION_VAR, '0');
+
+        $this->assertSame(Environment::Sandbox, DurianPay::fromEnv()->environment);
     }
 
     public function test_from_env_throws_when_api_key_missing(): void
@@ -186,9 +182,8 @@ class DurianPayTest extends TestCase
 
     public function test_from_env_loads_dotenv_file(): void
     {
-        // Clear vars so phpdotenv (immutable mode) can populate them.
         $this->unsetEnv(self::API_KEY_VAR);
-        $this->unsetEnv(self::ENV_VAR);
+        $this->unsetEnv(self::PRODUCTION_VAR);
 
         $dp = DurianPay::fromEnv(envPath: dirname(__DIR__) . '/fixtures');
 

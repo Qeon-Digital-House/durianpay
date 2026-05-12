@@ -18,14 +18,17 @@ composer require qdh/durianpay
 
 ## Configuration
 
-Add your API key and environment to your `.env` file:
+Add your API key and environment flag to your `.env` file:
 
 ```env
 DURIANPAY_API_KEY=your-api-key-here
-DURIANPAY_ENV=sandbox
+DURIANPAY_PRODUCTION=false
 ```
 
-`DURIANPAY_ENV` accepts `sandbox` or `live` (defaults to `live` when omitted or invalid).
+| `DURIANPAY_PRODUCTION` | Environment |
+|---|---|
+| `true` / `1` | Live (production) |
+| `false` / `0` / missing | Sandbox |
 
 **With a framework (Laravel, Symfony, etc.)** — the `.env` is already loaded:
 
@@ -34,7 +37,7 @@ use QDH\DurianPay\DurianPay;
 
 $dp = DurianPay::fromEnv();
 
-echo $dp->environment->value; // 'sandbox'
+echo $dp->environment->value; // 'sandbox' or 'live'
 ```
 
 **Plain PHP** — pass the directory that contains your `.env` file:
@@ -55,9 +58,6 @@ $dp = new DurianPay('dp_live_xxxxx', Environment::Live);
 ---
 
 ## Enums
-
-All channels and sub-types are backed string enums. Use `->value` when building
-request arrays.
 
 ### Environment
 
@@ -84,8 +84,6 @@ PaymentType::Qris;           // 'QRIS'
 ### E-wallet (`WalletType`)
 
 ```php
-use QDH\DurianPay\Enums\WalletType;
-
 WalletType::Dana;      // 'DANA'
 WalletType::Ovo;       // 'OVO'
 WalletType::LinkAja;   // 'LINKAJA'
@@ -98,8 +96,6 @@ WalletType::AstraPay;  // 'ASTRAPAY'
 ### Virtual Account bank (`BankCode`)
 
 ```php
-use QDH\DurianPay\Enums\BankCode;
-
 BankCode::Bca;     // 'BCA'
 BankCode::Bni;     // 'BNI'
 BankCode::Bri;     // 'BRI'
@@ -115,8 +111,6 @@ BankCode::Maybank; // 'MAYBANK'
 ### Retail store (`RetailStore`)
 
 ```php
-use QDH\DurianPay\Enums\RetailStore;
-
 RetailStore::Alfamart;  // 'ALFAMART'
 RetailStore::Indomaret; // 'INDOMARET'
 ```
@@ -124,8 +118,6 @@ RetailStore::Indomaret; // 'INDOMARET'
 ### Buy Now Pay Later (`BnplType`)
 
 ```php
-use QDH\DurianPay\Enums\BnplType;
-
 BnplType::Kredivo;   // 'KREDIVO'
 BnplType::Akulaku;   // 'AKULAKU'
 BnplType::Indodana;  // 'INDODANA'
@@ -135,8 +127,6 @@ BnplType::SpayLater; // 'SPAYLATER'
 ### Online banking (`OnlineBankingType`)
 
 ```php
-use QDH\DurianPay\Enums\OnlineBankingType;
-
 OnlineBankingType::BriEpay;         // 'BRI_EPAY'
 OnlineBankingType::CimbClicks;      // 'CIMB_CLICKS'
 OnlineBankingType::DanamonOnline;   // 'DANAMON_ONLINE'
@@ -149,8 +139,6 @@ OnlineBankingType::PermataNet;      // 'PERMATA_NET'
 DurianPay operates exclusively in Indonesia. **IDR is the only supported currency.**
 
 ```php
-use QDH\DurianPay\Enums\Currency;
-
 Currency::Idr; // 'IDR'
 ```
 
@@ -225,7 +213,6 @@ $payment = $dp->payments()->charge(PaymentType::BuyNowPayLater, [
     'bnpl_type' => BnplType::Kredivo->value,
 ]);
 
-// Fetch / list / verify / capture
 $payment  = $dp->payments()->fetch('pay_xxxx');
 $payments = $dp->payments()->list(skip: 0, limit: 25);
 

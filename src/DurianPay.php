@@ -23,7 +23,7 @@ class DurianPay
 
     public function __construct(
         public readonly string $apiKey,
-        public readonly Environment $environment = Environment::Live,
+        public readonly Environment $environment = Environment::Sandbox,
     ) {
         $this->http = new HttpClient($this->apiKey, self::BASE_URL);
     }
@@ -31,7 +31,7 @@ class DurianPay
     /**
      * Instantiate from environment variables.
      *
-     * Reads DURIANPAY_API_KEY and DURIANPAY_ENV (sandbox|live, defaults to live).
+     * Reads DURIANPAY_API_KEY and DURIANPAY_PRODUCTION (true = Live, false/missing = Sandbox).
      * Pass $envPath to auto-load a .env file from that directory first.
      */
     public static function fromEnv(?string $envPath = null): static
@@ -51,12 +51,14 @@ class DurianPay
             );
         }
 
-        $envValue = getenv('DURIANPAY_ENV');
-        if ($envValue === false || $envValue === '') {
-            $envValue = $_ENV['DURIANPAY_ENV'] ?? '';
+        $production = getenv('DURIANPAY_PRODUCTION');
+        if ($production === false || $production === '') {
+            $production = $_ENV['DURIANPAY_PRODUCTION'] ?? 'false';
         }
 
-        $environment = Environment::tryFrom(strtolower((string) $envValue)) ?? Environment::Live;
+        $environment = filter_var($production, FILTER_VALIDATE_BOOLEAN)
+            ? Environment::Live
+            : Environment::Sandbox;
 
         return new static($apiKey, $environment);
     }
