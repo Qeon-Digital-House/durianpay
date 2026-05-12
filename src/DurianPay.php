@@ -8,6 +8,7 @@ use Dotenv\Dotenv;
 use QDH\DurianPay\Api\Orders;
 use QDH\DurianPay\Api\Payments;
 use QDH\DurianPay\Api\Qris;
+use QDH\DurianPay\Enums\Environment;
 use QDH\DurianPay\Exceptions\DurianPayException;
 use QDH\DurianPay\Http\HttpClient;
 
@@ -20,39 +21,44 @@ class DurianPay
     private ?Payments $payments = null;
     private ?Qris $qris         = null;
 
-    public function __construct(public readonly string $apiKey)
-    {
+    public function __construct(
+        public readonly string $apiKey,
+        public readonly Environment $environment = Environment::Live,
+    ) {
         $this->http = new HttpClient($this->apiKey, self::BASE_URL);
     }
 
     /**
-     * Instantiate from an environment variable.
+     * Instantiate from environment variables.
      *
-     * @param string      $envKey  Name of the env variable (default: DURIANPAY_API_KEY)
-     * @param string|null $envPath Directory containing the .env file. When provided,
-     *                             the file is loaded before reading the variable.
+     * Reads DURIANPAY_API_KEY and DURIANPAY_ENV (sandbox|live, defaults to live).
+     * Pass $envPath to auto-load a .env file from that directory first.
      */
-    public static function fromEnv(
-        string $envKey = 'DURIANPAY_API_KEY',
-        ?string $envPath = null,
-    ): static {
+    public static function fromEnv(?string $envPath = null): static
+    {
         if ($envPath !== null) {
             Dotenv::createImmutable($envPath)->load();
         }
 
-        $apiKey = getenv($envKey);
-
+        $apiKey = getenv('DURIANPAY_API_KEY');
         if ($apiKey === false || $apiKey === '') {
-            $apiKey = $_ENV[$envKey] ?? '';
+            $apiKey = $_ENV['DURIANPAY_API_KEY'] ?? '';
         }
 
         if ($apiKey === '') {
             throw new DurianPayException(
-                "DurianPay API key not found. Set the \"{$envKey}\" environment variable."
+                'DurianPay API key not found. Set the "DURIANPAY_API_KEY" environment variable.'
             );
         }
 
-        return new static($apiKey);
+        $envValue = getenv('DURIANPAY_ENV');
+        if ($envValue === false || $envValue === '') {
+            $envValue = $_ENV['DURIANPAY_ENV'] ?? '';
+        }
+
+        $environment = Environment::tryFrom(strtolower((string) $envValue)) ?? Environment::Live;
+
+        return new static($apiKey, $environment);
     }
 
     public function orders(): Orders

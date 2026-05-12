@@ -9,20 +9,38 @@ use QDH\DurianPay\Api\Orders;
 use QDH\DurianPay\Api\Payments;
 use QDH\DurianPay\Api\Qris;
 use QDH\DurianPay\DurianPay;
+use QDH\DurianPay\Enums\Environment;
 use QDH\DurianPay\Exceptions\DurianPayException;
 
 class DurianPayTest extends TestCase
 {
-    private const ENV_KEY     = 'QDH_DP_UNIT_TEST_KEY';
-    private const FIXTURE_KEY = 'QDH_DP_FIXTURE_KEY';
+    private const API_KEY_VAR = 'DURIANPAY_API_KEY';
+    private const ENV_VAR     = 'DURIANPAY_ENV';
+
+    /** Saved env state restored in tearDown. */
+    private array $savedEnv = [];
+
+    protected function setUp(): void
+    {
+        foreach ([self::API_KEY_VAR, self::ENV_VAR] as $key) {
+            $this->savedEnv[$key] = getenv($key);
+        }
+    }
 
     protected function tearDown(): void
     {
-        foreach ([self::ENV_KEY, self::FIXTURE_KEY] as $key) {
-            putenv($key);
-            unset($_ENV[$key], $_SERVER[$key]);
+        foreach ($this->savedEnv as $key => $value) {
+            if ($value === false) {
+                putenv($key);
+                unset($_ENV[$key], $_SERVER[$key]);
+            } else {
+                putenv("{$key}={$value}");
+                $_ENV[$key] = $value;
+            }
         }
     }
+
+    // ── constructor ────────────────────────────────────────────────────────
 
     public function test_constructor_stores_api_key(): void
     {
@@ -30,6 +48,22 @@ class DurianPayTest extends TestCase
 
         $this->assertSame('my-key', $dp->apiKey);
     }
+
+    public function test_constructor_defaults_to_live_environment(): void
+    {
+        $dp = new DurianPay('my-key');
+
+        $this->assertSame(Environment::Live, $dp->environment);
+    }
+
+    public function test_constructor_accepts_sandbox_environment(): void
+    {
+        $dp = new DurianPay('my-key', Environment::Sandbox);
+
+        $this->assertSame(Environment::Sandbox, $dp->environment);
+    }
+
+    // ── lazy API instances ─────────────────────────────────────────────────
 
     public function test_orders_returns_orders_instance(): void
     {
@@ -67,58 +101,98 @@ class DurianPayTest extends TestCase
         $this->assertSame($dp->qris(), $dp->qris());
     }
 
-    public function test_from_env_reads_env_variable(): void
+    // ── fromEnv ────────────────────────────────────────────────────────────
+
+    private function setEnv(string $key, string $value): void
     {
-        putenv(self::ENV_KEY . '=my-env-key');
-        $_ENV[self::ENV_KEY] = 'my-env-key';
-
-        $dp = DurianPay::fromEnv(envKey: self::ENV_KEY);
-
-        $this->assertSame('my-env-key', $dp->apiKey);
+        putenv("{$key}={$value}");
+        $_ENV[$key] = $value;
     }
 
-    public function test_from_env_supports_custom_key_name(): void
+    private function unsetEnv(string $key): void
     {
-        putenv(self::ENV_KEY . '=custom-key');
-        $_ENV[self::ENV_KEY] = 'custom-key';
-
-        $dp = DurianPay::fromEnv(envKey: self::ENV_KEY);
-
-        $this->assertSame('custom-key', $dp->apiKey);
+        putenv($key);
+        unset($_ENV[$key], $_SERVER[$key]);
     }
 
-    public function test_from_env_throws_when_variable_is_missing(): void
+    public function test_from_env_reads_api_key(): void
     {
-        putenv(self::ENV_KEY);
-        unset($_ENV[self::ENV_KEY], $_SERVER[self::ENV_KEY]);
+        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
+        $this->setEnv(self::ENV_VAR, 'live');
+
+        $dp = DurianPay::fromEnv();
+
+        $this->assertSame('env-api-key', $dp->apiKey);
+    }
+
+    public function test_from_env_reads_sandbox_environment(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
+        $this->setEnv(self::ENV_VAR, 'sandbox');
+
+        $dp = DurianPay::fromEnv();
+
+        $this->assertSame(Environment::Sandbox, $dp->environment);
+    }
+
+    public function test_from_env_reads_live_environment(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
+        $this->setEnv(self::ENV_VAR, 'live');
+
+        $dp = DurianPay::fromEnv();
+
+        $this->assertSame(Environment::Live, $dp->environment);
+    }
+
+    public function test_from_env_defaults_to_live_when_env_var_missing(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
+        $this->unsetEnv(self::ENV_VAR);
+
+        $dp = DurianPay::fromEnv();
+
+        $this->assertSame(Environment::Live, $dp->environment);
+    }
+
+    public function test_from_env_defaults_to_live_on_invalid_env_value(): void
+    {
+        $this->setEnv(self::API_KEY_VAR, 'env-api-key');
+        $this->setEnv(self::ENV_VAR, 'production');
+
+        $dp = DurianPay::fromEnv();
+
+        $this->assertSame(Environment::Live, $dp->environment);
+    }
+
+    public function test_from_env_throws_when_api_key_missing(): void
+    {
+        $this->unsetEnv(self::API_KEY_VAR);
 
         $this->expectException(DurianPayException::class);
-        $this->expectExceptionMessageMatches('/"' . self::ENV_KEY . '"/');
+        $this->expectExceptionMessageMatches('/DURIANPAY_API_KEY/');
 
-        DurianPay::fromEnv(envKey: self::ENV_KEY);
+        DurianPay::fromEnv();
     }
 
-    public function test_from_env_throws_when_variable_is_empty(): void
+    public function test_from_env_throws_when_api_key_is_empty(): void
     {
-        putenv(self::ENV_KEY . '=');
-        $_ENV[self::ENV_KEY] = '';
+        $this->setEnv(self::API_KEY_VAR, '');
 
         $this->expectException(DurianPayException::class);
 
-        DurianPay::fromEnv(envKey: self::ENV_KEY);
+        DurianPay::fromEnv();
     }
 
     public function test_from_env_loads_dotenv_file(): void
     {
-        // Ensure key is absent so phpdotenv (immutable) can set it.
-        putenv(self::FIXTURE_KEY);
-        unset($_ENV[self::FIXTURE_KEY], $_SERVER[self::FIXTURE_KEY]);
+        // Clear vars so phpdotenv (immutable mode) can populate them.
+        $this->unsetEnv(self::API_KEY_VAR);
+        $this->unsetEnv(self::ENV_VAR);
 
-        $dp = DurianPay::fromEnv(
-            envKey:  self::FIXTURE_KEY,
-            envPath: dirname(__DIR__) . '/fixtures',
-        );
+        $dp = DurianPay::fromEnv(envPath: dirname(__DIR__) . '/fixtures');
 
         $this->assertSame('fixture-api-key', $dp->apiKey);
+        $this->assertSame(Environment::Sandbox, $dp->environment);
     }
 }

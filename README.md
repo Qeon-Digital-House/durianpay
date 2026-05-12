@@ -18,13 +18,14 @@ composer require qdh/durianpay
 
 ## Configuration
 
-Add your API key to your `.env` file:
+Add your API key and environment to your `.env` file:
 
 ```env
 DURIANPAY_API_KEY=your-api-key-here
+DURIANPAY_ENV=sandbox
 ```
 
-Then instantiate the client with `fromEnv()`.
+`DURIANPAY_ENV` accepts `sandbox` or `live` (defaults to `live` when omitted or invalid).
 
 **With a framework (Laravel, Symfony, etc.)** — the `.env` is already loaded:
 
@@ -32,6 +33,8 @@ Then instantiate the client with `fromEnv()`.
 use QDH\DurianPay\DurianPay;
 
 $dp = DurianPay::fromEnv();
+
+echo $dp->environment->value; // 'sandbox'
 ```
 
 **Plain PHP** — pass the directory that contains your `.env` file:
@@ -40,10 +43,13 @@ $dp = DurianPay::fromEnv();
 $dp = DurianPay::fromEnv(envPath: __DIR__);
 ```
 
-A custom variable name is also supported:
+**Direct instantiation** — pass the key and environment explicitly:
 
 ```php
-$dp = DurianPay::fromEnv(envKey: 'MY_DURIANPAY_KEY', envPath: __DIR__);
+use QDH\DurianPay\Enums\Environment;
+
+$dp = new DurianPay('dp_test_xxxxx', Environment::Sandbox);
+$dp = new DurianPay('dp_live_xxxxx', Environment::Live);
 ```
 
 ---
@@ -52,6 +58,15 @@ $dp = DurianPay::fromEnv(envKey: 'MY_DURIANPAY_KEY', envPath: __DIR__);
 
 All channels and sub-types are backed string enums. Use `->value` when building
 request arrays.
+
+### Environment
+
+```php
+use QDH\DurianPay\Enums\Environment;
+
+Environment::Sandbox; // 'sandbox'
+Environment::Live;    // 'live'
+```
 
 ### Payment type
 
