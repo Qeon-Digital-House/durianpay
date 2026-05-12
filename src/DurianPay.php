@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace QDH\DurianPay;
 
+use Dotenv\Dotenv;
 use QDH\DurianPay\Api\Orders;
 use QDH\DurianPay\Api\Payments;
 use QDH\DurianPay\Api\Qris;
@@ -26,10 +27,19 @@ class DurianPay
 
     /**
      * Instantiate from an environment variable.
-     * Defaults to DURIANPAY_API_KEY.
+     *
+     * @param string      $envKey  Name of the env variable (default: DURIANPAY_API_KEY)
+     * @param string|null $envPath Directory containing the .env file. When provided,
+     *                             the file is loaded before reading the variable.
      */
-    public static function fromEnv(string $envKey = 'DURIANPAY_API_KEY'): static
-    {
+    public static function fromEnv(
+        string $envKey = 'DURIANPAY_API_KEY',
+        ?string $envPath = null,
+    ): static {
+        if ($envPath !== null) {
+            Dotenv::createImmutable($envPath)->load();
+        }
+
         $apiKey = getenv($envKey);
 
         if ($apiKey === false || $apiKey === '') {

@@ -18,43 +18,32 @@ composer require qdh/durianpay
 
 ## Configuration
 
-### Option 1 — Environment variable (recommended)
-
 Add your API key to your `.env` file:
 
 ```env
 DURIANPAY_API_KEY=your-api-key-here
 ```
 
-Then instantiate via `fromEnv()`. It reads `DURIANPAY_API_KEY` by default and
-throws a `DurianPayException` if the variable is missing or empty.
+Then instantiate the client with `fromEnv()`.
+
+**With a framework (Laravel, Symfony, etc.)** — the `.env` is already loaded:
 
 ```php
 use QDH\DurianPay\DurianPay;
 
 $dp = DurianPay::fromEnv();
-
-// Custom variable name
-$dp = DurianPay::fromEnv('MY_DURIANPAY_KEY');
 ```
 
-If you are using plain PHP (no framework), load the `.env` file first with
-[vlucas/phpdotenv](https://github.com/vlucas/phpdotenv):
+**Plain PHP** — pass the directory that contains your `.env` file:
 
 ```php
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
-$dotenv->load();
-
-$dp = DurianPay::fromEnv();
+$dp = DurianPay::fromEnv(envPath: __DIR__);
 ```
 
-Frameworks such as Laravel and Symfony load `.env` automatically, so
-`fromEnv()` works out of the box.
-
-### Option 2 — Pass the key directly
+A custom variable name is also supported:
 
 ```php
-$dp = new DurianPay('your-api-key-here');
+$dp = DurianPay::fromEnv(envKey: 'MY_DURIANPAY_KEY', envPath: __DIR__);
 ```
 
 ---
