@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace QDH\DurianPay\Api;
 
+use QDH\DurianPay\Enums\PaymentType;
+
 class Payments extends AbstractApi
 {
-    public function charge(array $params): array
+    public function charge(PaymentType $type, array $request): array
     {
-        return $this->post('payments', $params);
+        return $this->post('payments', [
+            'type'    => $type->value,
+            'request' => $request,
+        ]);
     }
 
     public function fetch(string $id): array
