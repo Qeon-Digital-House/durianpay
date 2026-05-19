@@ -68,6 +68,18 @@ tests/
 
 ---
 
+## Base URLs
+
+| Environment | Base URL |
+|---|---|
+| `Environment::Live` | `https://api.durianpay.id/v1/` |
+| `Environment::Sandbox` | `https://api-sandbox.durianpay.id/v1/` |
+
+The correct URL is selected automatically in the `DurianPay` constructor via
+`BASE_URLS[environment->value]`. Never hardcode a base URL elsewhere.
+
+---
+
 ## Key Conventions
 
 ### PHP 8.1+ features in use
@@ -90,7 +102,7 @@ enum FooType: string
 Callers use `->value` when building request arrays: `FooType::Bar->value`.
 
 ### HTTP client
-- Base URL: `https://api.durianpay.id/v1/`
+- Base URL chosen per environment (see table above)
 - Auth: `Authorization: Basic base64("{apiKey}:")` (key as username, empty password)
 - Both `get()` and `post()` return `array` (decoded JSON)
 - Throws `ApiException` for HTTP 4xx/5xx, `DurianPayException` for cURL errors
@@ -104,7 +116,8 @@ Callers use `->value` when building request arrays: `FooType::Bar->value`.
 ### Environment
 - Constructor default: `Environment::Sandbox` (safe for local dev)
 - `fromEnv()` reads `DURIANPAY_API_KEY` and `DURIANPAY_PRODUCTION`
-- `DURIANPAY_PRODUCTION=true` → `Environment::Live`, anything else → `Environment::Sandbox`
+- `DURIANPAY_PRODUCTION=true` → `Environment::Live` → `https://api.durianpay.id/v1/`
+- `DURIANPAY_PRODUCTION=false` (or missing) → `Environment::Sandbox` → `https://api-sandbox.durianpay.id/v1/`
 
 ---
 
