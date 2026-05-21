@@ -6,11 +6,11 @@ namespace QDH\DurianPay\Enums;
 
 enum PaymentStatus: string
 {
-    case Started    = 'STARTED';
-    case Processing = 'PROCESSING';
-    case Completed  = 'COMPLETED';
-    case Failed     = 'FAILED';
-    case Cancelled  = 'CANCELLED';
-    case Expired    = 'EXPIRED';
-    case Pending    = 'PENDING';
+    case Started    = 'started';
+    case Processing = 'processing';
+    case Completed  = 'completed';
+    case Failed     = 'failed';
+    case Cancelled  = 'cancelled';
+    case Expired    = 'expired';
+    case Pending    = 'pending';
 }
