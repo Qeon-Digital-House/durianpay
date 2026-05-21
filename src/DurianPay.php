@@ -15,8 +15,8 @@ use QDH\DurianPay\Http\HttpClient;
 class DurianPay
 {
     private const BASE_URLS = [
-        Environment::Live->value    => 'https://api.durianpay.id/v1/',
-        Environment::Sandbox->value => 'https://api-sandbox.durianpay.id/v1/',
+        'live'    => 'https://api.durianpay.id/v1/',
+        'sandbox' => 'https://api-sandbox.durianpay.id/v1/',
     ];
 
     private readonly HttpClient $http;
