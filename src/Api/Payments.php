@@ -12,7 +12,7 @@ class Payments extends AbstractApi
 {
     public function charge(PaymentType $type, array $request): array
     {
-        return $this->post('payments', [
+        return $this->post('payments/charge', [
             'type'    => $type->value,
             'request' => $request,
         ]);
