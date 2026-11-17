@@ -11,9 +11,7 @@ enum BankCode: string
     case Bri     = 'BRI';
     case Mandiri = 'MANDIRI';
     case Permata = 'PERMATA';
-    case Bsi     = 'BSI';
     case Cimb    = 'CIMB';
-    case Danamon = 'DANAMON';
-    case Btn     = 'BTN';
-    case Maybank = 'MAYBANK';
+    case Nobu    = 'NOBU';
+    case Ina     = 'INA';
 }

@@ -1,12 +1,16 @@
 # qdh/durianpay
 
-Minimal PHP 8.1+ SDK for the [DurianPay](https://durianpay.id) payment gateway.
+Minimal PHP 8.1+ SDK for the [DurianPay](https://durianpay.id) **SNAP** payment APIs
+(Bank Indonesia's *Standar Nasional Open API Pembayaran*): QRIS, e-wallet and virtual accounts.
+
+Docs: [SNAP API reference](https://docs.durianpay.id/reference/snap-payment-apis) ·
+[Integration guide](https://docs.durianpay.id/docs/preparation-prerequisite-for-snap-1) ·
+[Test & go live](https://docs.durianpay.id/docs/test-go-live-with-snap)
 
 ## Requirements
 
 - PHP 8.1+
-- `ext-curl`
-- `ext-json`
+- `ext-curl`, `ext-json`, `ext-openssl`
 
 ## Installation
 
@@ -18,532 +22,266 @@ composer require qdh/durianpay
 
 ## Configuration
 
-Add your API key and environment flag to your `.env` file:
+### 1. Credentials
 
-```env
-DURIANPAY_API_KEY=your-api-key-here
-DURIANPAY_PRODUCTION=false
+SNAP uses three credentials from the DurianPay dashboard (**Settings > API Key**). Sandbox and live credentials are different.
+
+| Credential | Used for |
+|---|---|
+| Client Key | `X-CLIENT-KEY` on the token request, `X-PARTNER-ID` on every call |
+| Client Secret | HMAC-SHA512 key for transaction signatures |
+| Merchant private key | SHA256withRSA signature on the access-token request |
+
+Generate the merchant key pair and upload **the public key** to the dashboard:
+
+```bash
+openssl genrsa -out rsa_private_key.pem 2048
+openssl rsa -in rsa_private_key.pem -pubout -out rsa_public_key.pem
 ```
 
-| `DURIANPAY_PRODUCTION` | Environment |
-|---|---|
-| `true` / `1` | Live (production) |
-| `false` / `0` / missing | Sandbox |
+For webhook verification, also download **DurianPay's public key** from the dashboard.
 
-**With a framework (Laravel, Symfony, etc.)** — the `.env` is already loaded:
+### 2. `.env`
+
+```env
+DURIANPAY_CLIENT_KEY=your-client-key
+DURIANPAY_CLIENT_SECRET=your-client-secret
+# Path to the PEM file, or the PEM itself with newlines written as \n
+DURIANPAY_PRIVATE_KEY=storage/durianpay/private_key.pem
+DURIANPAY_PRODUCTION=false
+# Optional, defaults to 95221
+# DURIANPAY_CHANNEL_ID=95221
+```
+
+| `DURIANPAY_PRODUCTION` | Environment | Base URL |
+|---|---|---|
+| `true` / `1` | Live | `https://api.durianpay.id/v1.0/` |
+| `false` / `0` / missing | Sandbox | `https://api-sandbox.durianpay.id/v1.0/` |
+
+A relative `DURIANPAY_PRIVATE_KEY` path is resolved against the current directory, then against `envPath`.
+
+### 3. Instantiate
 
 ```php
 use QDH\DurianPay\DurianPay;
-
-$dp = DurianPay::fromEnv();
-```
-
-**Plain PHP** — pass the directory that contains your `.env` file:
-
-```php
-$dp = DurianPay::fromEnv(envPath: __DIR__);
-```
-
-**Direct instantiation:**
-
-```php
 use QDH\DurianPay\Enums\Environment;
 
-$dp = new DurianPay('dp_test_xxxxx', Environment::Sandbox);
-$dp = new DurianPay('dp_live_xxxxx', Environment::Live);
+$dp = DurianPay::fromEnv();                 // framework already loaded .env
+$dp = DurianPay::fromEnv(envPath: __DIR__); // plain PHP: load .env from a directory
+
+$dp = new DurianPay(
+    clientKey:    'your-client-key',
+    clientSecret: 'your-client-secret',
+    privateKey:   file_get_contents('/path/to/private_key.pem'),
+    environment:  Environment::Live,
+);
 ```
+
+### What the SDK does for you
+
+- Fetches a B2B access token (`POST /v1.0/access-token/b2b`), caches it in memory for its 15-minute lifetime and re-fetches once on a `401`.
+- Signs each request: `X-SIGNATURE = base64(HMAC-SHA512(clientSecret, "METHOD:/v1.0/path:token:sha256(body):timestamp"))`.
+- Sends `X-TIMESTAMP` (ISO 8601, `+07:00`), a fresh random `X-EXTERNAL-ID`, `X-PARTNER-ID` and `CHANNEL-ID`.
+- Formats amounts as SNAP amount objects: `10000` becomes `{"value": "10000.00", "currency": "IDR"}`.
+
+> The token cache lives in the `DurianPay` instance. In PHP-FPM each request gets a new token. Reuse one instance in long-running workers.
 
 ---
 
 ## Enums
 
-### Environment
+| Enum | Cases |
+|---|---|
+| `Environment` | `Sandbox`, `Live` |
+| `PaymentStatus` (SNAP `latestTransactionStatus`) | `Completed` `00`, `Initiated` `01`, `Processing` `02`, `Pending` `03`, `Refunded` `04`, `Cancelled` `05`, `Failed` `06`, `NotFound` `07`, `Expired` `08`, `Rejected` `09` |
+| `WalletType` | `Dana`, `Ovo`, `LinkAja`, `GoPay`, `ShopeePay` |
+| `BankCode` | `Bca`, `Bni`, `Bri`, `Mandiri`, `Permata`, `Cimb`, `Nobu`, `Ina` |
+| `VirtualAccountType` | `Closed` `C`, `Open` `O` |
+| `Currency` | `Idr` |
 
-```php
-Environment::Sandbox; // 'sandbox'
-Environment::Live;    // 'live'
-```
-
-### Payment type
-
-```php
-PaymentType::EWallet;        // 'EWALLET'
-PaymentType::VirtualAccount; // 'VA'
-PaymentType::RetailStore;    // 'RETAILSTORE'
-PaymentType::OnlineBanking;  // 'ONLINE_BANKING'
-PaymentType::BuyNowPayLater; // 'BNPL'
-PaymentType::Qris;           // 'QRIS'
-```
-
-### Payment status
-
-```php
-PaymentStatus::Started;    // 'STARTED'
-PaymentStatus::Processing; // 'PROCESSING'
-PaymentStatus::Completed;  // 'COMPLETED'
-PaymentStatus::Failed;     // 'FAILED'
-PaymentStatus::Cancelled;  // 'CANCELLED'
-PaymentStatus::Expired;    // 'EXPIRED'
-PaymentStatus::Pending;    // 'PENDING'
-```
-
-### E-wallet (`WalletType`)
-
-```php
-WalletType::Dana;      // 'DANA'
-WalletType::Ovo;       // 'OVO'
-WalletType::LinkAja;   // 'LINKAJA'
-WalletType::GoPay;     // 'GOPAY'
-WalletType::ShopeePay; // 'SHOPEEPAY'
-WalletType::JeniusPay; // 'JENIUSPAY'
-WalletType::AstraPay;  // 'ASTRAPAY'
-```
-
-### Virtual Account bank (`BankCode`)
-
-```php
-BankCode::Bca;     // 'BCA'
-BankCode::Bni;     // 'BNI'
-BankCode::Bri;     // 'BRI'
-BankCode::Mandiri; // 'MANDIRI'
-BankCode::Permata; // 'PERMATA'
-BankCode::Bsi;     // 'BSI'
-BankCode::Cimb;    // 'CIMB'
-BankCode::Danamon; // 'DANAMON'
-BankCode::Btn;     // 'BTN'
-BankCode::Maybank; // 'MAYBANK'
-```
-
-### Retail store (`RetailStore`)
-
-```php
-RetailStore::Alfamart;  // 'ALFAMART'
-RetailStore::Indomaret; // 'INDOMARET'
-```
-
-### Buy Now Pay Later (`BnplType`)
-
-```php
-BnplType::Kredivo;   // 'KREDIVO'
-BnplType::Akulaku;   // 'AKULAKU'
-BnplType::Indodana;  // 'INDODANA'
-BnplType::SpayLater; // 'SPAYLATER'
-```
-
-### Online banking (`OnlineBankingType`)
-
-```php
-OnlineBankingType::BriEpay;         // 'BRI_EPAY'
-OnlineBankingType::CimbClicks;      // 'CIMB_CLICKS'
-OnlineBankingType::DanamonOnline;   // 'DANAMON_ONLINE'
-OnlineBankingType::MandiriClickpay; // 'MANDIRI_CLICKPAY'
-OnlineBankingType::PermataNet;      // 'PERMATA_NET'
-```
-
-### Currency
-
-DurianPay operates exclusively in Indonesia. **IDR is the only supported currency.**
-
-```php
-Currency::Idr; // 'IDR'
-```
+`PaymentStatus::isPaid()` is true only for `Completed`. `isFinal()` is false for `Initiated`, `Processing` and `Pending`.
 
 ---
 
 ## Usage
 
-### Orders
+All methods return the decoded SNAP response `array`, except `status()`, which returns a `PaymentStatus`.
 
-#### `create(array $params): array`
+### QRIS — `$dp->qris()`
+
+#### `generate(string $partnerReferenceNo, int|float|string $amount, array $additionalInfo = []): array`
+
+`POST /v1.0/qr/qr-mpm-generate`
 
 ```php
-$order = $dp->orders()->create([
-    'amount'       => '50000.00',
-    'currency'     => Currency::Idr->value,
-    'order_ref_id' => 'order-001',
-    'customer'     => [
-        'customer_ref_id' => 'cust-001',
-        'given_names'     => 'John Doe',
-        'email'           => 'john@example.com',
-        'mobile'          => '+6281234567890',
-    ],
+$qr = $dp->qris()->generate('ORDER-1001', 50000, [
+    'expiryDate'   => '2026-12-01T10:00:00+07:00', // optional, default 1 day
+    'customerInfo' => ['given_name' => 'Jane Doe', 'email' => 'jane@example.com'],
 ]);
-// returns:
+
 // [
-//   'data' => [
-//     'id'           => 'ord_gQFDFtQVb80836',
-//     'customer_id'  => 'cust_XgXAFtBVc00041',
-//     'amount'       => '50000.00',
-//     'currency'     => 'IDR',
-//     'status'       => 'CREATED',
-//     'order_ref_id' => 'order-001',
-//     'created_at'   => '2024-01-15T10:00:00.000Z',
-//     'updated_at'   => '2024-01-15T10:00:00.000Z',
-//   ]
+//   'responseCode'       => '2004700',
+//   'responseMessage'    => 'Successful',
+//   'referenceNo'        => 'pay_xxx',        // DurianPay ID: keep it for query/cancel/refund
+//   'partnerReferenceNo' => 'ORDER-1001',
+//   'qrContent'          => '00020101021226...', // QRIS string, render as QR
+//   'qrImage'            => 'data:image/png;base64,...',
+//   'additionalInfo'     => ['expiryDate' => '...', 'customerInfo' => [...]],
 // ]
 ```
 
-#### `fetch(string $id): array`
+#### `query(string $referenceNo): array` / `status(string $referenceNo): PaymentStatus`
+
+`POST /v1.0/qr/qr-mpm-query` (serviceCode `47`)
 
 ```php
-$order = $dp->orders()->fetch('ord_gQFDFtQVb80836');
-// returns: (same shape as create)
+$dp->qris()->query('pay_xxx');
+// ['latestTransactionStatus' => '00', 'transactionStatusDesc' => '...', 'paidTime' => '...', 'amount' => [...]]
+
+if ($dp->qris()->status('pay_xxx')->isPaid()) { /* fulfil */ }
+```
+
+#### `cancel(string $referenceNo, string $partnerReferenceNo, string $merchantId, string $reason = 'cancelled by merchant'): array`
+
+`POST /v1.0/qr/qr-mpm-cancel`. Works only on payments that aren't completed yet. A `202` response means the request is still in progress, so confirm it with `query()`.
+
+#### `refund(string $referenceNo, string $partnerReferenceNo, string $partnerRefundNo, int|float|string $amount): array`
+
+`POST /v1.0/qr/qr-mpm-refund`. Works only on completed payments.
+
+---
+
+### E-wallet — `$dp->ewallet()`
+
+#### `create(string $partnerReferenceNo, int|float|string $amount, WalletType $channel, string $phoneNumber, array $additionalInfo = []): array`
+
+`POST /v1.0/debit/payment-host-to-host`
+
+```php
+use QDH\DurianPay\Enums\WalletType;
+
+$payment = $dp->ewallet()->create('ORDER-1002', 75000, WalletType::ShopeePay, '081234567890', [
+    'customerInfo' => ['given_name' => 'Jane Doe'],
+]);
+
 // [
-//   'data' => [
-//     'id'           => 'ord_gQFDFtQVb80836',
-//     'amount'       => '50000.00',
-//     'currency'     => 'IDR',
-//     'status'       => 'COMPLETED',
-//     'order_ref_id' => 'order-001',
-//     'created_at'   => '2024-01-15T10:00:00.000Z',
-//     'updated_at'   => '2024-01-15T10:05:00.000Z',
-//   ]
+//   'responseCode'   => '2005400',
+//   'referenceNo'    => 'pay_xxx',
+//   'webRedirectUrl' => 'https://...', // redirect the customer (not returned for OVO: push to the app)
+//   'additionalInfo' => ['expiryDate' => '...', 'channelCode' => 'SHOPEEPAY', ...],
 // ]
 ```
 
-#### `list(int $skip, int $limit): array`
+#### `query(string $referenceNo): array` / `status(string $referenceNo): PaymentStatus`
+
+`POST /v1.0/debit/status` (serviceCode `54`)
+
+#### `cancel(string $referenceNo, string $partnerReferenceNo, ?string $reason = null): array`
+
+`POST /v1.0/debit/cancel`
+
+#### `refund(string $referenceNo, string $partnerReferenceNo, string $partnerRefundNo, int|float|string $amount): array`
+
+`POST /v1.0/debit/refund`
+
+---
+
+### Virtual account — `$dp->virtualAccounts()`
+
+#### `create(BankCode $bank, string $trxId, string $name, int|float|string|null $amount = null, array $options = []): array`
+
+`POST /v1.0/transfer-va/create-va`. Passing an amount creates a **closed** VA (`C`). Passing `null` creates an **open** VA (`O`).
 
 ```php
-$orders = $dp->orders()->list(skip: 0, limit: 25);
-// returns:
+use QDH\DurianPay\Enums\BankCode;
+
+$va = $dp->virtualAccounts()->create(BankCode::Bca, 'ORDER-1003', 'Jane Doe', 150000, [
+    'expiredDate'    => '2026-12-01T10:00:00+07:00',
+    'customerNo'     => '12345678',              // optional VA suffix
+    'additionalInfo' => ['isReusable' => false, 'customerInfo' => ['email' => 'jane@example.com']],
+]);
+
 // [
-//   'data' => [
-//     ['id' => 'ord_gQFDFtQVb80836', 'amount' => '50000.00', 'status' => 'COMPLETED', ...],
-//     ['id' => 'ord_hRGEGuRWc91947', 'amount' => '75000.00', 'status' => 'CREATED',   ...],
+//   'responseCode'       => '2002700',
+//   'virtualAccountData' => [
+//     'partnerServiceId' => '   12345',
+//     'customerNo'       => '12345678',
+//     'virtualAccountNo' => '   1234512345678',
+//     'trxId'            => 'ORDER-1003',
+//     'additionalInfo'   => ['bankCode' => 'BCA', 'payment_instruction' => [...], ...],
 //   ],
-//   'total' => 2,
 // ]
 ```
 
-#### `fetchItems(string $id): array`
+#### `inquiry(string $partnerServiceId, string $customerNo, string $virtualAccountNo, string $trxId): array`
+
+`POST /v1.0/transfer-va/inquiry-va`. Pass the identifiers exactly as `create()` returned them (`partnerServiceId` may have leading spaces).
+
+#### `update(array $params): array`
+
+`PUT /v1.0/transfer-va/update-va`. `$params` must contain `partnerServiceId`, `customerNo`, `virtualAccountNo`, `virtualAccountName` and `trxId`, plus the fields you want to change (`expiredDate`, `totalAmount`). Setting `expiredDate` to the current time expires the VA.
 
 ```php
-$items = $dp->orders()->fetchItems('ord_gQFDFtQVb80836');
-// returns:
-// [
-//   'data' => [
-//     [
-//       'id'       => 'item_001',
-//       'name'     => 'Product A',
-//       'price'    => '50000.00',
-//       'qty'      => 1,
-//       'logo'     => 'https://example.com/product-a.jpg',
-//       'sku'      => 'SKU-001',
-//     ],
-//   ]
-// ]
+use QDH\DurianPay\Support\Amount;
+
+$dp->virtualAccounts()->update([
+    ...array_intersect_key($va['virtualAccountData'], array_flip(
+        ['partnerServiceId', 'customerNo', 'virtualAccountNo', 'virtualAccountName', 'trxId']
+    )),
+    'totalAmount' => Amount::of(175000),
+]);
 ```
 
 ---
 
-### Payments
+### Webhooks (payment notifications)
 
-#### `charge(PaymentType $type, array $request): array`
-
-```php
-use QDH\DurianPay\Enums\{PaymentType, WalletType, BankCode, RetailStore, BnplType, OnlineBankingType};
-
-// E-wallet
-$payment = $dp->payments()->charge(PaymentType::EWallet, [
-    'order_id'    => 'ord_gQFDFtQVb80836',
-    'amount'      => '50000.00',
-    'wallet_type' => WalletType::Dana->value,
-    'mobile'      => '+6281234567890',
-]);
-// returns:
-// [
-//   'data' => [
-//     'id'         => 'pay_AaBbCcDd001122',
-//     'order_id'   => 'ord_gQFDFtQVb80836',
-//     'amount'     => '50000.00',
-//     'currency'   => 'IDR',
-//     'status'     => 'STARTED',
-//     'method_id'  => 'EWALLET_DANA',
-//     'mobile'     => '+6281234567890',
-//     'checkout_url' => 'https://checkout.dana.id/pay?token=xxxxx',
-//     'created_at' => '2024-01-15T10:00:00.000Z',
-//     'is_live'    => false,
-//   ]
-// ]
-
-// Virtual Account
-$payment = $dp->payments()->charge(PaymentType::VirtualAccount, [
-    'order_id'  => 'ord_gQFDFtQVb80836',
-    'amount'    => '50000.00',
-    'bank_code' => BankCode::Bca->value,
-]);
-// returns:
-// [
-//   'data' => [
-//     'id'             => 'pay_AaBbCcDd001122',
-//     'order_id'       => 'ord_gQFDFtQVb80836',
-//     'amount'         => '50000.00',
-//     'currency'       => 'IDR',
-//     'status'         => 'STARTED',
-//     'method_id'      => 'VA_BCA',
-//     'va_number'      => '1234567890123456',
-//     'bank_code'      => 'BCA',
-//     'expiration_time'=> '2024-01-15T11:00:00.000Z',
-//     'created_at'     => '2024-01-15T10:00:00.000Z',
-//     'is_live'        => false,
-//   ]
-// ]
-
-// Retail store
-$payment = $dp->payments()->charge(PaymentType::RetailStore, [
-    'order_id'   => 'ord_gQFDFtQVb80836',
-    'amount'     => '50000.00',
-    'store_type' => RetailStore::Alfamart->value,
-]);
-// returns:
-// [
-//   'data' => [
-//     'id'           => 'pay_AaBbCcDd001122',
-//     'order_id'     => 'ord_gQFDFtQVb80836',
-//     'amount'       => '50000.00',
-//     'currency'     => 'IDR',
-//     'status'       => 'STARTED',
-//     'method_id'    => 'RETAILSTORE_ALFAMART',
-//     'payment_code' => '85012345678',
-//     'store_type'   => 'ALFAMART',
-//     'expiration_time' => '2024-01-15T11:00:00.000Z',
-//     'created_at'   => '2024-01-15T10:00:00.000Z',
-//     'is_live'      => false,
-//   ]
-// ]
-
-// Online banking
-$payment = $dp->payments()->charge(PaymentType::OnlineBanking, [
-    'order_id' => 'ord_gQFDFtQVb80836',
-    'amount'   => '50000.00',
-    'type'     => OnlineBankingType::BriEpay->value,
-]);
-// returns:
-// [
-//   'data' => [
-//     'id'           => 'pay_AaBbCcDd001122',
-//     'order_id'     => 'ord_gQFDFtQVb80836',
-//     'amount'       => '50000.00',
-//     'currency'     => 'IDR',
-//     'status'       => 'STARTED',
-//     'method_id'    => 'ONLINE_BANKING_BRI_EPAY',
-//     'checkout_url' => 'https://briapi.co.id/pay?token=xxxxx',
-//     'created_at'   => '2024-01-15T10:00:00.000Z',
-//     'is_live'      => false,
-//   ]
-// ]
-
-// Buy Now Pay Later
-$payment = $dp->payments()->charge(PaymentType::BuyNowPayLater, [
-    'order_id'  => 'ord_gQFDFtQVb80836',
-    'amount'    => '50000.00',
-    'bnpl_type' => BnplType::Kredivo->value,
-]);
-// returns:
-// [
-//   'data' => [
-//     'id'           => 'pay_AaBbCcDd001122',
-//     'order_id'     => 'ord_gQFDFtQVb80836',
-//     'amount'       => '50000.00',
-//     'currency'     => 'IDR',
-//     'status'       => 'STARTED',
-//     'method_id'    => 'BNPL_KREDIVO',
-//     'checkout_url' => 'https://checkout.kredivo.com/pay?token=xxxxx',
-//     'created_at'   => '2024-01-15T10:00:00.000Z',
-//     'is_live'      => false,
-//   ]
-// ]
-```
-
-#### `checkStatus(string $id): array`
-
-Calls `GET /payments/{id}/status` — returns a focused status response.
+DurianPay sends `POST` requests to the webhook URL set in **Settings > Webhook**, with `X-SIGNATURE` and `X-TIMESTAMP` headers. The signature is SHA256withRSA over `POST:{path}:{sha256(body)}:{timestamp}`, made with DurianPay's private key.
 
 ```php
-$response = $dp->payments()->checkStatus('pay_AaBbCcDd001122');
-// returns:
-// [
-//   'data' => [
-//     'id'         => 'pay_AaBbCcDd001122',
-//     'status'     => 'COMPLETED',
-//     'updated_at' => '2024-01-15T10:05:00.000Z',
-//   ]
-// ]
-```
+use QDH\DurianPay\Webhook;
 
-#### `status(string $id): PaymentStatus`
+$raw = file_get_contents('php://input');
 
-Convenience wrapper around `checkStatus()` — returns a typed enum.
-
-```php
-use QDH\DurianPay\Enums\PaymentStatus;
-
-$status = $dp->payments()->status('pay_AaBbCcDd001122');
-// returns one of:
-//   PaymentStatus::Started    — payment initiated, awaiting user action
-//   PaymentStatus::Processing — being processed by the payment provider
-//   PaymentStatus::Completed  — payment successful
-//   PaymentStatus::Failed     — payment failed
-//   PaymentStatus::Cancelled  — cancelled by user or merchant
-//   PaymentStatus::Expired    — payment window closed
-//   PaymentStatus::Pending    — awaiting further confirmation
-
-if ($status === PaymentStatus::Completed) {
-    // fulfil the order
-}
-
-if (in_array($status, [PaymentStatus::Failed, PaymentStatus::Expired, PaymentStatus::Cancelled])) {
-    // notify the user and allow retry
-}
-```
-
-#### `fetch(string $id): array`
-
-```php
-$payment = $dp->payments()->fetch('pay_AaBbCcDd001122');
-// returns: (full payment object)
-// [
-//   'data' => [
-//     'id'         => 'pay_AaBbCcDd001122',
-//     'order_id'   => 'ord_gQFDFtQVb80836',
-//     'amount'     => '50000.00',
-//     'currency'   => 'IDR',
-//     'status'     => 'COMPLETED',
-//     'method_id'  => 'EWALLET_DANA',
-//     'created_at' => '2024-01-15T10:00:00.000Z',
-//     'updated_at' => '2024-01-15T10:05:00.000Z',
-//     'is_live'    => false,
-//   ]
-// ]
-```
-
-#### `list(int $skip, int $limit): array`
-
-```php
-$payments = $dp->payments()->list(skip: 0, limit: 25);
-// returns:
-// [
-//   'data' => [
-//     ['id' => 'pay_AaBbCcDd001122', 'amount' => '50000.00', 'status' => 'COMPLETED', ...],
-//     ['id' => 'pay_BbCcDdEe002233', 'amount' => '75000.00', 'status' => 'FAILED',    ...],
-//   ],
-//   'total' => 2,
-// ]
-```
-
-#### `verify(string $id, array $params): array`
-
-```php
-$result = $dp->payments()->verify('pay_AaBbCcDd001122', [
-    'verification_signature' => 'sha256-signature-from-webhook',
-]);
-// returns:
-// [
-//   'data' => [
-//     'is_valid' => true,
-//   ]
-// ]
-```
-
-#### `capture(string $id): array`
-
-```php
-$result = $dp->payments()->capture('pay_AaBbCcDd001122');
-// returns:
-// [
-//   'data' => [
-//     'id'         => 'pay_AaBbCcDd001122',
-//     'status'     => 'COMPLETED',
-//     'updated_at' => '2024-01-15T10:05:00.000Z',
-//   ]
-// ]
-```
-
----
-
-### QRIS
-
-#### `charge(string $orderId, string $name, int $amount): array`
-
-```php
-$qris = $dp->qris()->charge(
-    orderId: 'ord_gQFDFtQVb80836',
-    name:    'John Doe',
-    amount:  50000,
+$valid = Webhook::verify(
+    path:      parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), // e.g. /callback/v1.0/qr/qr-mpm-notify
+    rawBody:   $raw,
+    timestamp: $_SERVER['HTTP_X_TIMESTAMP'] ?? '',
+    signature: $_SERVER['HTTP_X_SIGNATURE'] ?? '',
+    publicKey: file_get_contents('/path/to/durianpay_public_key.pem'),
 );
-// returns:
-// [
-//   'data' => [
-//     'id'              => 'pay_AaBbCcDd001122',
-//     'order_id'        => 'ord_gQFDFtQVb80836',
-//     'amount'          => 50000,
-//     'currency'        => 'IDR',
-//     'status'          => 'STARTED',
-//     'method_id'       => 'QRIS',
-//     'qr_code_string'  => '00020101021226....',  // QRIS payload (display in QR renderer)
-//     'qr_code_image'   => 'data:image/png;base64,iVBOR...',  // base64 QR image
-//     'expiration_time' => '2024-01-15T10:15:00.000Z',
-//     'created_at'      => '2024-01-15T10:00:00.000Z',
-//     'is_live'         => false,
-//   ]
-// ]
-```
 
-#### `checkStatus(string $id): array`
-
-Calls `GET /payments/{id}/status` — use this to poll until the customer scans the QR.
-
-```php
-$response = $dp->qris()->checkStatus('pay_AaBbCcDd001122');
-// returns:
-// [
-//   'data' => [
-//     'id'         => 'pay_AaBbCcDd001122',
-//     'status'     => 'PROCESSING',
-//     'updated_at' => '2024-01-15T10:02:00.000Z',
-//   ]
-// ]
-```
-
-#### `status(string $id): PaymentStatus`
-
-Convenience wrapper — returns a typed enum for easy comparison.
-
-```php
-$status = $dp->qris()->status('pay_AaBbCcDd001122');
-// returns one of:
-//   PaymentStatus::Started    — QR generated, not yet scanned
-//   PaymentStatus::Processing — scanned, awaiting bank confirmation
-//   PaymentStatus::Completed  — payment confirmed
-//   PaymentStatus::Failed     — payment failed
-//   PaymentStatus::Cancelled  — cancelled
-//   PaymentStatus::Expired    — QR code expired
-//   PaymentStatus::Pending    — awaiting further confirmation
-
-if ($status === PaymentStatus::Completed) {
-    // QRIS payment confirmed, fulfil the order
+if (!$valid) {
+    http_response_code(401);
+    exit;
 }
+
+$event = json_decode($raw, true);
+// $event['latestTransactionStatus'] === '00' → paid. Dedupe on originalReferenceNo (QRIS/e-wallet)
+// or paymentRequestId (VA): DurianPay retries until it gets a 200.
+
+http_response_code(200);
+echo json_encode(['responseCode' => '2005200', 'responseMessage' => 'Successful']); // QRIS: 2005200, e-wallet: 2005600
 ```
 
-#### `fetch(string $id): array`
+Reply within 5 seconds. Only status `00` means the payment is paid. `05`, `08` and `09` must not be fulfilled.
+
+---
+
+### Debug logging (raw request/response)
+
+`onExchange()` receives every HTTP exchange, including the access-token call. Use it to capture
+request/response evidence, e.g. for DurianPay's go-live functional testing:
 
 ```php
-$detail = $dp->qris()->fetch('pay_AaBbCcDd001122');
-// returns: (full payment object, same shape as Payments::fetch)
-// [
-//   'data' => [
-//     'id'         => 'pay_AaBbCcDd001122',
-//     'order_id'   => 'ord_gQFDFtQVb80836',
-//     'amount'     => 50000,
-//     'currency'   => 'IDR',
-//     'status'     => 'COMPLETED',
-//     'method_id'  => 'QRIS',
-//     'created_at' => '2024-01-15T10:00:00.000Z',
-//     'updated_at' => '2024-01-15T10:05:00.000Z',
-//     'is_live'    => false,
-//   ]
-// ]
+$dp->onExchange(function (array $e) {
+    // $e: method, url, request_headers (name => value), request_body,
+    //     status, response_body, duration_ms, error
+    error_log(json_encode($e, JSON_UNESCAPED_SLASHES));
+});
 ```
+
+Headers are passed **unredacted** (`Authorization`, `X-SIGNATURE`). Enable this in sandbox only.
 
 ---
 
@@ -554,18 +292,33 @@ use QDH\DurianPay\Exceptions\ApiException;
 use QDH\DurianPay\Exceptions\DurianPayException;
 
 try {
-    $status = $dp->payments()->status('pay_xxxx');
+    $dp->qris()->generate('ORDER-1001', 50000);
 } catch (ApiException $e) {
-    // HTTP 4xx / 5xx from DurianPay
-    $e->statusCode;       // int,   e.g. 404
-    $e->responseBody;     // array, e.g. ['error' => 'payment_not_found']
-    $e->getMessage();     // string of the JSON-encoded body
-    $e->getCode();        // same as statusCode
+    $e->statusCode;      // 400
+    $e->responseCode;    // "4004702" (HTTP status + service code + case code)
+    $e->responseMessage; // "Invalid Mandatory Field amount"
+    $e->traceId();       // send this to DurianPay support
+    $e->responseBody;    // full decoded body
 } catch (DurianPayException $e) {
-    // network / cURL error, or unrecognised status value from status()
-    $e->getMessage();
+    // cURL failure, bad key, unknown status, missing config
 }
 ```
+
+Common codes: `409xx00` means `X-EXTERNAL-ID` was reused on the same day. `409xx01` means a duplicate `partnerReferenceNo`. `401xx01` means an invalid token (the SDK retries once automatically).
+
+---
+
+## Migrating from the legacy (non-SNAP) API
+
+| Legacy | SNAP |
+|---|---|
+| `new DurianPay($apiKey, $env)` | `new DurianPay($clientKey, $clientSecret, $privateKey, $env)` |
+| `DURIANPAY_API_KEY` | `DURIANPAY_CLIENT_KEY`, `DURIANPAY_CLIENT_SECRET`, `DURIANPAY_PRIVATE_KEY` |
+| `orders()->create()` + `payments()->charge()` | No orders in SNAP. Call `qris()->generate()`, `ewallet()->create()` or `virtualAccounts()->create()` directly |
+| `qris()->charge($orderId, $name, $amount)` | `qris()->generate($partnerReferenceNo, $amount, $additionalInfo)` |
+| `payments()->status($id)` / `qris()->status($id)` | `qris()->status($referenceNo)` / `ewallet()->status($referenceNo)` |
+| `PaymentStatus::Completed` = `'completed'` | `PaymentStatus::Completed` = `'00'` |
+| Retail store, BNPL, online banking | Not available in DurianPay SNAP |
 
 ## License
 

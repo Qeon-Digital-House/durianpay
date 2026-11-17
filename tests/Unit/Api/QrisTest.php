@@ -21,104 +21,91 @@ class QrisTest extends TestCase
         $this->qris = new Qris($this->http);
     }
 
-    public function test_charge_sends_correct_payload(): void
+    public function test_generate_calls_qr_mpm_generate(): void
     {
-        $expected = [
-            'type'    => 'QRIS',
-            'request' => [
-                'order_id' => 'ord_123',
-                'name'     => 'John Doe',
-                'amount'   => 50000,
-            ],
-        ];
-        $response = ['data' => ['qr_code_string' => 'qr-data']];
+        $info     = ['expiryDate' => '2026-12-01T10:00:00+07:00', 'customerInfo' => ['given_name' => 'Jane']];
+        $response = ['responseCode' => '2004700', 'referenceNo' => 'pay_1', 'qrContent' => '000201...'];
 
         $this->http->expects($this->once())
             ->method('post')
-            ->with('payments', $expected)
+            ->with('qr/qr-mpm-generate', [
+                'partnerReferenceNo' => 'ref_1',
+                'amount'             => ['value' => '10000.00', 'currency' => 'IDR'],
+                'additionalInfo'     => $info,
+            ])
             ->willReturn($response);
 
-        $this->assertSame($response, $this->qris->charge(orderId: 'ord_123', name: 'John Doe', amount: 50000));
+        $this->assertSame($response, $this->qris->generate('ref_1', 10000, $info));
     }
 
-    public function test_charge_type_is_always_qris(): void
+    public function test_generate_sends_empty_additional_info_as_object(): void
     {
         $this->http->expects($this->once())
             ->method('post')
-            ->with('payments', $this->callback(
-                fn (array $body): bool => $body['type'] === 'QRIS'
+            ->with('qr/qr-mpm-generate', $this->callback(
+                fn (array $body): bool => $body['additionalInfo'] instanceof \stdClass
             ))
             ->willReturn([]);
 
-        $this->qris->charge('ord_123', 'Jane', 10000);
+        $this->qris->generate('ref_1', 10000);
     }
 
-    public function test_fetch_gets_payment_by_id(): void
+    public function test_query_uses_service_code_47(): void
     {
-        $response = ['data' => ['id' => 'pay_123', 'status' => 'PROCESSING']];
+        $response = ['latestTransactionStatus' => '00'];
 
         $this->http->expects($this->once())
-            ->method('get')
-            ->with('payments/pay_123', [])
+            ->method('post')
+            ->with('qr/qr-mpm-query', ['originalReferenceNo' => 'pay_1', 'serviceCode' => '47'])
             ->willReturn($response);
 
-        $this->assertSame($response, $this->qris->fetch('pay_123'));
+        $this->assertSame($response, $this->qris->query('pay_1'));
     }
 
-    public function test_check_status_calls_dedicated_endpoint(): void
+    public function test_status_returns_typed_enum(): void
     {
-        $response = ['data' => ['status' => 'COMPLETED']];
+        $this->http->method('post')->willReturn(['latestTransactionStatus' => '08']);
 
-        $this->http->expects($this->once())
-            ->method('get')
-            ->with('payments/pay_123/status', [])
-            ->willReturn($response);
-
-        $this->assertSame($response, $this->qris->checkStatus('pay_123'));
-    }
-
-    /** @dataProvider statusProvider */
-    public function test_status_returns_typed_enum(string $raw, PaymentStatus $expected): void
-    {
-        $this->http->expects($this->once())
-            ->method('get')
-            ->with('payments/pay_123/status', [])
-            ->willReturn(['data' => ['status' => $raw]]);
-
-        $this->assertSame($expected, $this->qris->status('pay_123'));
-    }
-
-    public static function statusProvider(): array
-    {
-        return [
-            [PaymentStatus::Started->value,    PaymentStatus::Started],
-            [PaymentStatus::Processing->value, PaymentStatus::Processing],
-            [PaymentStatus::Completed->value,  PaymentStatus::Completed],
-            [PaymentStatus::Failed->value,     PaymentStatus::Failed],
-            [PaymentStatus::Cancelled->value,  PaymentStatus::Cancelled],
-            [PaymentStatus::Expired->value,    PaymentStatus::Expired],
-            [PaymentStatus::Pending->value,    PaymentStatus::Pending],
-        ];
-    }
-
-    public function test_status_also_handles_top_level_status_key(): void
-    {
-        $this->http->expects($this->once())
-            ->method('get')
-            ->willReturn(['status' => 'PROCESSING']);
-
-        $this->assertSame(PaymentStatus::Processing, $this->qris->status('pay_123'));
+        $this->assertSame(PaymentStatus::Expired, $this->qris->status('pay_1'));
     }
 
     public function test_status_throws_on_unknown_status(): void
     {
-        $this->http->expects($this->once())
-            ->method('get')
-            ->willReturn(['data' => ['status' => 'UNKNOWN_STATUS']]);
+        $this->http->method('post')->willReturn(['latestTransactionStatus' => '99']);
 
         $this->expectException(DurianPayException::class);
-        $this->expectExceptionMessageMatches('/UNKNOWN_STATUS/');
+        $this->expectExceptionMessageMatches('/99/');
 
-        $this->qris->status('pay_123');
+        $this->qris->status('pay_1');
+    }
+
+    public function test_cancel_calls_qr_mpm_cancel(): void
+    {
+        $this->http->expects($this->once())
+            ->method('post')
+            ->with('qr/qr-mpm-cancel', [
+                'merchantId'                 => 'mer_1',
+                'originalReferenceNo'        => 'pay_1',
+                'originalPartnerReferenceNo' => 'ref_1',
+                'reason'                     => 'customer cancelled',
+            ])
+            ->willReturn(['responseCode' => '2007700']);
+
+        $this->qris->cancel('pay_1', 'ref_1', 'mer_1', 'customer cancelled');
+    }
+
+    public function test_refund_calls_qr_mpm_refund(): void
+    {
+        $this->http->expects($this->once())
+            ->method('post')
+            ->with('qr/qr-mpm-refund', [
+                'originalReferenceNo'        => 'pay_1',
+                'originalPartnerReferenceNo' => 'ref_1',
+                'partnerRefundNo'            => 'rf_1',
+                'refundAmount'               => ['value' => '5000.00', 'currency' => 'IDR'],
+            ])
+            ->willReturn(['responseCode' => '2007800']);
+
+        $this->qris->refund('pay_1', 'ref_1', 'rf_1', 5000);
     }
 }

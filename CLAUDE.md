@@ -5,14 +5,16 @@ This file helps Claude Code understand the project and make consistent changes.
 ## Project Overview
 
 `qdh/durianpay` is a minimal, zero-dependency PHP 8.1+ Composer package for the
-[DurianPay](https://durianpay.id) payment gateway. It covers the **Payment API**
-and **QRIS API**.
+[DurianPay](https://durianpay.id) payment gateway, built on DurianPay's **SNAP**
+APIs (Bank Indonesia open API standard): QRIS, e-wallet (direct debit) and virtual accounts.
+The legacy non-SNAP API (Basic Auth, `/v1/orders`, `/v1/payments`) is no longer used.
+
+Docs: https://docs.durianpay.id/reference/snap-payment-apis
 
 - **Repo**: `qeon-digital-house/durianpay`
-- **Branch**: `claude/durianpay-composer-package-l0uzk`
 - **Packagist name**: `qdh/durianpay`
 - **PHP requirement**: `^8.1`
-- **Runtime dependencies**: `vlucas/phpdotenv ^5.5`, `ext-curl`, `ext-json`
+- **Runtime dependencies**: `vlucas/phpdotenv ^5.5`, `ext-curl`, `ext-json`, `ext-openssl`
 - **Dev dependencies**: `phpunit/phpunit ^10.5`
 
 ---
@@ -21,49 +23,34 @@ and **QRIS API**.
 
 ```
 src/
-  DurianPay.php          # Main entry point — exposes orders(), payments(), qris()
+  DurianPay.php          # Entry point: qris(), ewallet(), virtualAccounts(); fromEnv()
+  Webhook.php            # Webhook::verify() for inbound SNAP notifications
   Http/
-    HttpClient.php       # cURL HTTP client, sets Basic Auth on every request
-    Response.php         # readonly value object (unused directly, kept for future use)
+    HttpClient.php       # cURL client: B2B token fetch + cache, SNAP headers, signing, 401 retry
+    Signature.php        # asymmetric (token), symmetric (transactions), verifyNotification (webhooks)
+  Support/
+    Amount.php           # Amount::of(10000) → ['value' => '10000.00', 'currency' => 'IDR']
   Exceptions/
     DurianPayException.php  # Base exception (extends RuntimeException)
-    ApiException.php        # HTTP 4xx/5xx — holds statusCode + responseBody
+    ApiException.php        # HTTP 4xx/5xx: statusCode, responseBody, responseCode, responseMessage, traceId()
   Api/
-    AbstractApi.php      # Base class: holds HttpClient, exposes get() / post()
-    Orders.php           # Order endpoints
-    Payments.php         # Payment endpoints
-    Qris.php             # QRIS endpoints (wraps /payments with type=QRIS)
+    AbstractApi.php      # Base class: post() / put(), toStatus()
+    Qris.php             # qr/qr-mpm-generate | query | cancel | refund (serviceCode 47)
+    Ewallet.php          # debit/payment-host-to-host | status | cancel | refund (serviceCode 54)
+    VirtualAccounts.php  # transfer-va/create-va | inquiry-va | update-va (PUT)
   Enums/
     Environment.php      # Sandbox | Live
-    PaymentType.php      # EWALLET | VA | RETAILSTORE | ONLINE_BANKING | BNPL | QRIS
-    PaymentStatus.php    # STARTED | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | PENDING
-    WalletType.php       # DANA | OVO | LINKAJA | GOPAY | SHOPEEPAY | JENIUSPAY | ASTRAPAY
-    BankCode.php         # BCA | BNI | BRI | MANDIRI | PERMATA | BSI | CIMB | DANAMON | BTN | MAYBANK
-    RetailStore.php      # ALFAMART | INDOMARET
-    BnplType.php         # KREDIVO | AKULAKU | INDODANA | SPAYLATER
-    OnlineBankingType.php# BRI_EPAY | CIMB_CLICKS | DANAMON_ONLINE | MANDIRI_CLICKPAY | PERMATA_NET
+    PaymentStatus.php    # SNAP latestTransactionStatus codes '00'..'09'
+    WalletType.php       # DANA | OVO | LINKAJA | GOPAY | SHOPEEPAY
+    BankCode.php         # BCA | BNI | BRI | MANDIRI | PERMATA | CIMB | NOBU | INA
+    VirtualAccountType.php # C (closed) | O (open)
     Currency.php         # IDR (only)
 tests/
-  Unit/
-    DurianPayTest.php
-    Exceptions/
-      ApiExceptionTest.php
-    Api/
-      OrdersTest.php
-      PaymentsTest.php
-      QrisTest.php
-    Enums/
-      PaymentTypeTest.php
-      WalletTypeTest.php
-      BankCodeTest.php
-      RetailStoreTest.php
-      BnplTypeTest.php
-      OnlineBankingTypeTest.php
-      CurrencyTest.php
-      EnvironmentTest.php
-      PaymentStatusTest.php
+  Unit/                  # mirrors src/ (Api, Enums, Exceptions, Http, Support, DurianPayTest, WebhookTest)
   fixtures/
-    .env                 # DURIANPAY_API_KEY=fixture-api-key + DURIANPAY_PRODUCTION=false
+    .env                 # fixture SNAP credentials; DURIANPAY_PRIVATE_KEY=private_key.pem
+    private_key.pem      # TEST-ONLY RSA key pair used by signature tests (never a real credential)
+    public_key.pem
 ```
 
 ---
@@ -72,10 +59,10 @@ tests/
 
 | Environment | Base URL |
 |---|---|
-| `Environment::Live` | `https://api.durianpay.id/v1/` |
-| `Environment::Sandbox` | `https://api-sandbox.durianpay.id/v1/` |
+| `Environment::Live` | `https://api.durianpay.id` |
+| `Environment::Sandbox` | `https://api-sandbox.durianpay.id` |
 
-The correct URL is selected automatically in the `DurianPay` constructor via
+`HttpClient` appends `/v1.0/` + path. The base URL is chosen in the `DurianPay` constructor via
 `BASE_URLS[environment->value]`. Never hardcode a base URL elsewhere.
 
 ---
@@ -83,11 +70,8 @@ The correct URL is selected automatically in the `DurianPay` constructor via
 ## Key Conventions
 
 ### PHP 8.1+ features in use
-- `readonly` properties (`HttpClient`, `Response`, `DurianPay`, `ApiException`)
-- Backed string enums for all value types
-- Constructor property promotion
-- Named arguments (`json_decode(..., associative: true)`)
-- Nullsafe assignment operator (`??=`) for lazy API instances
+- `readonly` properties, backed string enums, constructor property promotion, named arguments
+- `??=` for lazy API instances
 
 ### No comments on obvious code
 Only add a comment when the WHY is non-obvious. Do not document what the code does.
@@ -99,25 +83,28 @@ enum FooType: string
     case Bar = 'BAR';
 }
 ```
-Callers use `->value` when building request arrays: `FooType::Bar->value`.
 
-### HTTP client
-- Base URL chosen per environment (see table above)
-- Auth: `Authorization: Basic base64("{apiKey}:")` (key as username, empty password)
-- Both `get()` and `post()` return `array` (decoded JSON)
-- Throws `ApiException` for HTTP 4xx/5xx, `DurianPayException` for cURL errors
+### SNAP HTTP client
+- Token: `POST /v1.0/access-token/b2b`, body `{"grantType":"AUTHORIZATION_CODE"}`, headers `X-CLIENT-KEY`,
+  `X-TIMESTAMP`, `X-SIGNATURE = base64(SHA256withRSA(privateKey, "{clientKey}|{timestamp}"))`. Cached 900s - 60s.
+- Transactions: `Authorization: Bearer {token}`, `X-TIMESTAMP`, `X-PARTNER-ID` (= client key), `X-EXTERNAL-ID`
+  (random, unique per day), `CHANNEL-ID` (default `95221`), and
+  `X-SIGNATURE = base64(HMAC-SHA512(clientSecret, "METHOD:/v1.0/{path}:{token}:{sha256hex(body)}:{timestamp}"))`.
+- The body is encoded once with `Signature::encodeBody()`, and that exact string is both hashed and sent.
+- A `401` drops the cached token and retries once.
+- Throws `ApiException` for HTTP 4xx/5xx and `DurianPayException` for cURL/key/config errors.
+- `transport()`, `timestamp()` and `externalId()` are protected so tests can override them (see `HttpClientTest`).
 
 ### API classes
-- Extend `AbstractApi`
-- Use `$this->get(path, query)` and `$this->post(path, body)`
-- Path strings do **not** have a leading slash — `"payments/{$id}/status"`, not `"/payments/{$id}/status"`
-- Always return `array` except `status()` which returns `PaymentStatus`
+- Extend `AbstractApi` and use `$this->post(path, body)` / `$this->put(path, body)`
+- Path strings have **no** leading slash and **no** `v1.0` prefix: `"qr/qr-mpm-generate"`
+- Amounts are always built with `Amount::of()`; never send raw ints
+- Always return `array`, except `status()`, which returns `PaymentStatus` (from `latestTransactionStatus`)
 
 ### Environment
-- Constructor default: `Environment::Sandbox` (safe for local dev)
-- `fromEnv()` reads `DURIANPAY_API_KEY` and `DURIANPAY_PRODUCTION`
-- `DURIANPAY_PRODUCTION=true` → `Environment::Live` → `https://api.durianpay.id/v1/`
-- `DURIANPAY_PRODUCTION=false` (or missing) → `Environment::Sandbox` → `https://api-sandbox.durianpay.id/v1/`
+- Constructor default: `Environment::Sandbox`
+- `fromEnv()` reads `DURIANPAY_CLIENT_KEY`, `DURIANPAY_CLIENT_SECRET`, `DURIANPAY_PRIVATE_KEY`
+  (PEM or file path, relative paths also resolved against `envPath`), `DURIANPAY_PRODUCTION`, `DURIANPAY_CHANNEL_ID`
 
 ---
 
@@ -127,7 +114,7 @@ Callers use `->value` when building request arrays: `FooType::Bar->value`.
    ```php
    public function myMethod(string $id): array
    {
-       return $this->get("resource/{$id}");
+       return $this->post('resource/action', ['originalReferenceNo' => $id]);
    }
    ```
 
@@ -138,8 +125,8 @@ Callers use `->value` when building request arrays: `FooType::Bar->value`.
        $response = ['data' => ['id' => 'res_123']];
 
        $this->http->expects($this->once())
-           ->method('get')
-           ->with('resource/res_123', [])
+           ->method('post')
+           ->with('resource/action', ['originalReferenceNo' => 'res_123'])
            ->willReturn($response);
 
        $this->assertSame($response, $this->subject->myMethod('res_123'));
@@ -213,8 +200,8 @@ composer test          # runs phpunit
 ./vendor/bin/phpunit   # equivalent
 ```
 
-Tests are pure unit tests — no network calls. `HttpClient` is mocked via
-`$this->createMock(HttpClient::class)` in every API test.
+Tests are pure unit tests with no network calls. API tests mock `HttpClient` via
+`$this->createMock(HttpClient::class)`. `HttpClientTest` subclasses it and overrides `transport()`.
 
 ---
 
@@ -222,7 +209,8 @@ Tests are pure unit tests — no network calls. `HttpClient` is mocked via
 
 | Variable | Required | Values | Default |
 |---|---|---|---|
-| `DURIANPAY_API_KEY` | yes | any string | — |
+| `DURIANPAY_CLIENT_KEY` | yes | dashboard Client Key | — |
+| `DURIANPAY_CLIENT_SECRET` | yes | dashboard Client Secret | — |
+| `DURIANPAY_PRIVATE_KEY` | yes | PEM (`\n`-escaped) or path to PEM | — |
 | `DURIANPAY_PRODUCTION` | no | `true` / `false` | `false` (Sandbox) |
-
-See `tests/fixtures/.env` for the fixture values used in `DurianPayTest::test_from_env_loads_dotenv_file()`.
+| `DURIANPAY_CHANNEL_ID` | no | numeric string | `95221` |

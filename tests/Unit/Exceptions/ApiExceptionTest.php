@@ -52,4 +52,26 @@ class ApiExceptionTest extends TestCase
 
         $this->assertSame([], $e->responseBody);
     }
+
+    public function test_snap_response_code_message_and_trace_id_are_extracted(): void
+    {
+        $e = new ApiException(400, [
+            'responseCode'    => '4004702',
+            'responseMessage' => 'Invalid Mandatory Field amount',
+            'additionalInfo'  => ['trace_id' => 'trace-1'],
+        ]);
+
+        $this->assertSame('4004702', $e->responseCode);
+        $this->assertSame('Invalid Mandatory Field amount', $e->responseMessage);
+        $this->assertSame('trace-1', $e->traceId());
+    }
+
+    public function test_snap_fields_are_null_when_absent(): void
+    {
+        $e = new ApiException(500, []);
+
+        $this->assertNull($e->responseCode);
+        $this->assertNull($e->responseMessage);
+        $this->assertNull($e->traceId());
+    }
 }

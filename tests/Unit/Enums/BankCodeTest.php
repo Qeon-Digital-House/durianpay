@@ -23,17 +23,15 @@ class BankCodeTest extends TestCase
             [BankCode::Bri,     'BRI'],
             [BankCode::Mandiri, 'MANDIRI'],
             [BankCode::Permata, 'PERMATA'],
-            [BankCode::Bsi,     'BSI'],
             [BankCode::Cimb,    'CIMB'],
-            [BankCode::Danamon, 'DANAMON'],
-            [BankCode::Btn,     'BTN'],
-            [BankCode::Maybank, 'MAYBANK'],
+            [BankCode::Nobu,    'NOBU'],
+            [BankCode::Ina,     'INA'],
         ];
     }
 
     public function test_from_throws_on_unknown_value(): void
     {
         $this->expectException(\ValueError::class);
-        BankCode::from('UNKNOWN_BANK');
+        BankCode::from('UNKNOWN');
     }
 }

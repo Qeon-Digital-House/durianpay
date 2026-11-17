@@ -18,29 +18,43 @@ class PaymentStatusTest extends TestCase
     public static function caseProvider(): array
     {
         return [
-            [PaymentStatus::Started,    'STARTED'],
-            [PaymentStatus::Processing, 'PROCESSING'],
-            [PaymentStatus::Completed,  'COMPLETED'],
-            [PaymentStatus::Failed,     'FAILED'],
-            [PaymentStatus::Cancelled,  'CANCELLED'],
-            [PaymentStatus::Expired,    'EXPIRED'],
-            [PaymentStatus::Pending,    'PENDING'],
+            [PaymentStatus::Completed,  '00'],
+            [PaymentStatus::Initiated,  '01'],
+            [PaymentStatus::Processing, '02'],
+            [PaymentStatus::Pending,    '03'],
+            [PaymentStatus::Refunded,   '04'],
+            [PaymentStatus::Cancelled,  '05'],
+            [PaymentStatus::Failed,     '06'],
+            [PaymentStatus::NotFound,   '07'],
+            [PaymentStatus::Expired,    '08'],
+            [PaymentStatus::Rejected,   '09'],
         ];
     }
 
-    public function test_from_resolves_known_value(): void
+    public function test_only_completed_is_paid(): void
     {
-        $this->assertSame(PaymentStatus::Completed, PaymentStatus::from('COMPLETED'));
+        foreach (PaymentStatus::cases() as $case) {
+            $this->assertSame($case === PaymentStatus::Completed, $case->isPaid(), $case->name);
+        }
+    }
+
+    public function test_in_flight_statuses_are_not_final(): void
+    {
+        $this->assertFalse(PaymentStatus::Processing->isFinal());
+        $this->assertFalse(PaymentStatus::Pending->isFinal());
+        $this->assertFalse(PaymentStatus::Initiated->isFinal());
+        $this->assertTrue(PaymentStatus::Completed->isFinal());
+        $this->assertTrue(PaymentStatus::Expired->isFinal());
     }
 
     public function test_from_throws_on_unknown_value(): void
     {
         $this->expectException(\ValueError::class);
-        PaymentStatus::from('UNKNOWN');
+        PaymentStatus::from('99');
     }
 
     public function test_try_from_returns_null_on_unknown_value(): void
     {
-        $this->assertNull(PaymentStatus::tryFrom('INVALID'));
+        $this->assertNull(PaymentStatus::tryFrom('completed'));
     }
 }
