@@ -5,44 +5,63 @@ declare(strict_types=1);
 namespace QDH\DurianPay\Api;
 
 use QDH\DurianPay\Enums\PaymentStatus;
-use QDH\DurianPay\Exceptions\DurianPayException;
+use QDH\DurianPay\Support\Amount;
 
 class Qris extends AbstractApi
 {
-    public function charge(string $orderId, string $name, int $amount): array
+    public const SERVICE_CODE = '47';
+
+    /** POST /v1.0/qr/qr-mpm-generate — $additionalInfo accepts expiryDate and customerInfo. */
+    public function generate(string $partnerReferenceNo, int|float|string $amount, array $additionalInfo = []): array
     {
-        return $this->post('payments', [
-            'type'    => 'QRIS',
-            'request' => [
-                'order_id' => $orderId,
-                'name'     => $name,
-                'amount'   => $amount,
-            ],
+        return $this->post('qr/qr-mpm-generate', [
+            'partnerReferenceNo' => $partnerReferenceNo,
+            'amount'             => Amount::of($amount),
+            'additionalInfo'     => $additionalInfo === [] ? new \stdClass() : $additionalInfo,
         ]);
     }
 
-    public function fetch(string $id): array
+    /** POST /v1.0/qr/qr-mpm-query — $referenceNo is the `referenceNo` returned by generate(). */
+    public function query(string $referenceNo): array
     {
-        return $this->get("payments/{$id}");
+        return $this->post('qr/qr-mpm-query', [
+            'originalReferenceNo' => $referenceNo,
+            'serviceCode'         => self::SERVICE_CODE,
+        ]);
     }
 
-    /** GET /payments/{id}/status — returns the raw API response. */
-    public function checkStatus(string $id): array
+    public function status(string $referenceNo): PaymentStatus
     {
-        return $this->get("payments/{$id}/status");
+        return $this->toStatus($this->query($referenceNo));
     }
 
-    /** Returns a typed PaymentStatus enum for the given payment ID. */
-    public function status(string $id): PaymentStatus
-    {
-        $response = $this->checkStatus($id);
-        $raw      = $response['data']['status'] ?? $response['status'] ?? '';
-        $status   = PaymentStatus::tryFrom($raw);
+    /** POST /v1.0/qr/qr-mpm-cancel — only payments that are not yet completed. */
+    public function cancel(
+        string $referenceNo,
+        string $partnerReferenceNo,
+        string $merchantId,
+        string $reason = 'cancelled by merchant',
+    ): array {
+        return $this->post('qr/qr-mpm-cancel', [
+            'merchantId'                 => $merchantId,
+            'originalReferenceNo'        => $referenceNo,
+            'originalPartnerReferenceNo' => $partnerReferenceNo,
+            'reason'                     => $reason,
+        ]);
+    }
 
-        if ($status === null) {
-            throw new DurianPayException("Unknown payment status: \"{$raw}\"");
-        }
-
-        return $status;
+    /** POST /v1.0/qr/qr-mpm-refund — only completed payments. */
+    public function refund(
+        string $referenceNo,
+        string $partnerReferenceNo,
+        string $partnerRefundNo,
+        int|float|string $amount,
+    ): array {
+        return $this->post('qr/qr-mpm-refund', [
+            'originalReferenceNo'        => $referenceNo,
+            'originalPartnerReferenceNo' => $partnerReferenceNo,
+            'partnerRefundNo'            => $partnerRefundNo,
+            'refundAmount'               => Amount::of($amount),
+        ]);
     }
 }

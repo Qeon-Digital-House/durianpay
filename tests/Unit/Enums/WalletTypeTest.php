@@ -23,8 +23,6 @@ class WalletTypeTest extends TestCase
             [WalletType::LinkAja,   'LINKAJA'],
             [WalletType::GoPay,     'GOPAY'],
             [WalletType::ShopeePay, 'SHOPEEPAY'],
-            [WalletType::JeniusPay, 'JENIUSPAY'],
-            [WalletType::AstraPay,  'ASTRAPAY'],
         ];
     }
 

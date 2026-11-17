@@ -11,6 +11,4 @@ enum WalletType: string
     case LinkAja   = 'LINKAJA';
     case GoPay     = 'GOPAY';
     case ShopeePay = 'SHOPEEPAY';
-    case JeniusPay = 'JENIUSPAY';
-    case AstraPay  = 'ASTRAPAY';
 }
