@@ -82,6 +82,17 @@ class DurianPay
         return $this->ewallet ??= new Ewallet($this->http);
     }
 
+    /**
+     * Debug hook: called with every raw HTTP exchange (full request headers and body, status,
+     * raw response). See HttpClient::onExchange(). Pass null to remove it.
+     */
+    public function onExchange(?callable $listener): static
+    {
+        $this->http->onExchange($listener);
+
+        return $this;
+    }
+
     public function qris(): Qris
     {
         return $this->qris ??= new Qris($this->http);

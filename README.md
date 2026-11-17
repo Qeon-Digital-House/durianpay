@@ -268,6 +268,23 @@ Reply within 5 seconds. Only status `00` means the payment is paid. `05`, `08` a
 
 ---
 
+### Debug logging (raw request/response)
+
+`onExchange()` receives every HTTP exchange, including the access-token call. Use it to capture
+request/response evidence, e.g. for DurianPay's go-live functional testing:
+
+```php
+$dp->onExchange(function (array $e) {
+    // $e: method, url, request_headers (name => value), request_body,
+    //     status, response_body, duration_ms, error
+    error_log(json_encode($e, JSON_UNESCAPED_SLASHES));
+});
+```
+
+Headers are passed **unredacted** (`Authorization`, `X-SIGNATURE`). Enable this in sandbox only.
+
+---
+
 ### Error Handling
 
 ```php

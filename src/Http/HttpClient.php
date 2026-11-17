@@ -20,6 +20,9 @@ class HttpClient
     private ?string $accessToken = null;
     private int $tokenExpiresAt  = 0;
 
+    /** @var (callable(array): void)|null */
+    private $exchangeListener = null;
+
     public function __construct(
         private readonly string $clientKey,
         private readonly string $clientSecret,
@@ -105,19 +108,75 @@ class HttpClient
         return $decoded;
     }
 
+    /**
+     * Receives every HTTP exchange, the access-token call included, after it completes:
+     * ['method', 'url', 'request_headers' (name => value), 'request_body', 'status',
+     *  'response_body', 'duration_ms', 'error' (cURL failure, else null)].
+     *
+     * Headers are passed unredacted (Authorization, X-SIGNATURE), so keep this off in production.
+     * A listener that throws never affects the API call.
+     *
+     * @param (callable(array): void)|null $listener
+     */
+    public function onExchange(?callable $listener): void
+    {
+        $this->exchangeListener = $listener;
+    }
+
     /** @return array{0: int, 1: array} */
     private function send(string $method, string $path, string $body, array $headers): array
     {
-        [$status, $raw] = $this->transport(
-            $method,
-            rtrim($this->baseUrl, '/') . self::API_PREFIX . $path,
-            array_merge(['Content-Type: application/json', 'Accept: application/json'], $headers),
-            $body,
-        );
+        $url       = rtrim($this->baseUrl, '/') . self::API_PREFIX . $path;
+        $headers   = array_merge(['Content-Type: application/json', 'Accept: application/json'], $headers);
+        $startedAt = microtime(true);
+
+        try {
+            [$status, $raw] = $this->transport($method, $url, $headers, $body);
+        } catch (\Throwable $e) {
+            $this->notifyExchange($method, $url, $headers, $body, 0, '', $startedAt, $e->getMessage());
+            throw $e;
+        }
+
+        $this->notifyExchange($method, $url, $headers, $body, $status, $raw, $startedAt, null);
 
         $decoded = json_decode($raw, associative: true);
 
         return [$status, is_array($decoded) ? $decoded : []];
+    }
+
+    private function notifyExchange(
+        string $method,
+        string $url,
+        array $headers,
+        string $body,
+        int $status,
+        string $raw,
+        float $startedAt,
+        ?string $error,
+    ): void {
+        if ($this->exchangeListener === null) {
+            return;
+        }
+
+        $named = [];
+        foreach ($headers as $header) {
+            [$name, $value] = array_pad(explode(':', $header, 2), 2, '');
+            $named[trim($name)] = trim($value);
+        }
+
+        try {
+            ($this->exchangeListener)([
+                'method'          => $method,
+                'url'             => $url,
+                'request_headers' => $named,
+                'request_body'    => $body,
+                'status'          => $status,
+                'response_body'   => $raw,
+                'duration_ms'     => (int) round((microtime(true) - $startedAt) * 1000),
+                'error'           => $error,
+            ]);
+        } catch (\Throwable) {
+        }
     }
 
     /**

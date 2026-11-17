@@ -196,4 +196,52 @@ class HttpClientTest extends TestCase
 
         $client->accessToken();
     }
+
+    public function test_exchange_listener_receives_full_request_and_response(): void
+    {
+        $client = $this->client([$this->tokenResponse(), [200, ['responseCode' => '2004700', 'referenceNo' => 'pay_1']]]);
+        $seen   = [];
+        $client->onExchange(function (array $e) use (&$seen) { $seen[] = $e; });
+
+        $client->post('qr/qr-mpm-generate', ['partnerReferenceNo' => 'ref_1']);
+
+        $this->assertCount(2, $seen);
+        $this->assertSame('https://api-sandbox.durianpay.id/v1.0/access-token/b2b', $seen[0]['url']);
+        $this->assertSame('client-key', $seen[0]['request_headers']['X-CLIENT-KEY']);
+
+        $tx = $seen[1];
+        $this->assertSame('POST', $tx['method']);
+        $this->assertSame('https://api-sandbox.durianpay.id/v1.0/qr/qr-mpm-generate', $tx['url']);
+        $this->assertSame('{"partnerReferenceNo":"ref_1"}', $tx['request_body']);
+        foreach (['X-TIMESTAMP', 'X-SIGNATURE', 'X-PARTNER-ID', 'X-EXTERNAL-ID', 'CHANNEL-ID', 'Authorization'] as $h) {
+            $this->assertArrayHasKey($h, $tx['request_headers']);
+        }
+        $this->assertSame('Bearer token-1', $tx['request_headers']['Authorization']);
+        $this->assertSame(200, $tx['status']);
+        $this->assertSame('{"responseCode":"2004700","referenceNo":"pay_1"}', $tx['response_body']);
+        $this->assertNull($tx['error']);
+        $this->assertIsInt($tx['duration_ms']);
+    }
+
+    public function test_exchange_listener_errors_never_break_the_call(): void
+    {
+        $client = $this->client([$this->tokenResponse(), [200, ['ok' => true]]]);
+        $client->onExchange(function () { throw new \RuntimeException('logger down'); });
+
+        $this->assertSame(['ok' => true], $client->post('qr/qr-mpm-query'));
+    }
+
+    public function test_exchange_listener_sees_error_responses(): void
+    {
+        $client = $this->client([$this->tokenResponse(), [400, ['responseCode' => '4004702']]]);
+        $statuses = [];
+        $client->onExchange(function (array $e) use (&$statuses) { $statuses[] = $e['status']; });
+
+        try {
+            $client->post('qr/qr-mpm-generate');
+        } catch (ApiException) {
+        }
+
+        $this->assertSame([200, 400], $statuses);
+    }
 }
